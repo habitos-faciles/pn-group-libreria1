@@ -267,7 +267,6 @@ if(typeof firebase === 'undefined'){
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
-const COLECCION = 'tienda';
 
 /* ---------- Notificación por correo (EmailJS) ---------- */
 const EMAILJS_SERVICE_ID = 'service_8682cq8';
@@ -312,10 +311,33 @@ const ACCESS = {
 };
 state.auth = { admin:false, repartidor:false };
 
-/* ---------- Persistencia (Firebase Firestore) ---------- */
-async function storageSet(key, value){
-  try{ await db.collection(COLECCION).doc(key).set({ value, actualizado: firebase.firestore.FieldValue.serverTimestamp() }); }
-  catch(e){ console.error(e); toast('No se pudo guardar en la base de datos: '+key); }
+/* ---------- Persistencia (Firebase Firestore) ----------
+   Cada producto, categoría y pedido vive en SU PROPIO documento (no todos
+   juntos en un array dentro de un solo documento). Así, agregar o editar uno
+   nunca puede sobrescribir o borrar accidentalmente a los demás. */
+const COL_PRODUCTOS = 'productos';
+const COL_CATEGORIAS = 'categorias';
+const COL_PEDIDOS = 'pedidos';
+
+function guardarProducto(p){
+  db.collection(COL_PRODUCTOS).doc(p.id).set(p)
+    .catch(e=>{ console.error(e); toast('No se pudo guardar el producto en la base de datos'); });
+}
+function eliminarProductoDB(id){
+  db.collection(COL_PRODUCTOS).doc(id).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar el producto de la base de datos'); });
+}
+function guardarCategoriaDB(nombre){
+  db.collection(COL_CATEGORIAS).doc(nombre).set({ nombre })
+    .catch(e=>{ console.error(e); toast('No se pudo guardar la categoría en la base de datos'); });
+}
+function eliminarCategoriaDB(nombre){
+  db.collection(COL_CATEGORIAS).doc(nombre).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar la categoría de la base de datos'); });
+}
+function guardarPedido(o){
+  db.collection(COL_PEDIDOS).doc(o.id).set(o)
+    .catch(e=>{ console.error(e); toast('No se pudo guardar el pedido en la base de datos'); });
 }
 
 function seedData(){
@@ -351,31 +373,40 @@ function loadData(){
   activarSincronizacionEnVivo(seed);
 }
 
-/* Escucha cambios en tiempo real: en cuanto la conexión con Firestore esté lista,
-   reemplaza los datos de respaldo por los reales, y si otro dispositivo
-   (cliente/admin/repartidor) guarda datos nuevos, esta pantalla se actualiza
-   sola, sin recargar la página. Si un documento no existe todavía (primera vez
-   que se usa la base de datos), lo crea en segundo plano sin bloquear la pantalla. */
+/* Escucha cambios en tiempo real en cada colección. Cada documento sembrado
+   una sola vez si la colección está totalmente vacía (primera vez que se usa
+   la base de datos) — nunca vuelve a sobrescribir productos ya guardados. */
+let yaSembrado = { productos:false, categorias:false, pedidos:false };
 function activarSincronizacionEnVivo(seed){
-  const yaSembrado = {};
-  const combos = [
-    { key:'categories', seedVal: seed.categories },
-    { key:'products', seedVal: seed.products },
-    { key:'orders', seedVal: seed.orders }
-  ];
-  combos.forEach(({key, seedVal})=>{
-    db.collection(COLECCION).doc(key).onSnapshot(doc=>{
-      if(doc.exists){
-        state[key] = doc.data().value;
-        render();
-      } else if(!yaSembrado[key]){
-        yaSembrado[key] = true;
-        storageSet(key, seedVal);
-      }
-    }, err=>{
-      console.error('Sincronización', key, err);
-    });
-  });
+  db.collection(COL_PRODUCTOS).onSnapshot(snap=>{
+    if(snap.empty && !yaSembrado.productos){
+      yaSembrado.productos = true;
+      seed.products.forEach(p=>guardarProducto(p));
+    } else if(!snap.empty){
+      state.products = snap.docs.map(d=>d.data());
+      render();
+    }
+  }, err=>console.error('Sincronización productos', err));
+
+  db.collection(COL_CATEGORIAS).onSnapshot(snap=>{
+    if(snap.empty && !yaSembrado.categorias){
+      yaSembrado.categorias = true;
+      seed.categories.forEach(c=>guardarCategoriaDB(c));
+    } else if(!snap.empty){
+      state.categories = snap.docs.map(d=>d.data().nombre);
+      render();
+    }
+  }, err=>console.error('Sincronización categorías', err));
+
+  db.collection(COL_PEDIDOS).onSnapshot(snap=>{
+    if(snap.empty && !yaSembrado.pedidos){
+      yaSembrado.pedidos = true;
+      seed.orders.forEach(o=>guardarPedido(o));
+    } else if(!snap.empty){
+      state.orders = snap.docs.map(d=>d.data());
+      render();
+    }
+  }, err=>console.error('Sincronización pedidos', err));
 }
 
 function showWelcome(){
@@ -399,7 +430,18 @@ function resetAll(){
   state.categories = seed.categories; state.products = seed.products; state.orders = seed.orders; state.cart = [];
   render();
   toast('Datos de ejemplo restablecidos');
-  Promise.all([storageSet('categories', state.categories), storageSet('products', state.products), storageSet('orders', state.orders)])
+  const borrarColeccion = (col)=> db.collection(col).get().then(snap=>{
+    const batch = db.batch();
+    snap.docs.forEach(d=>batch.delete(d.ref));
+    return batch.commit();
+  });
+  Promise.all([borrarColeccion(COL_PRODUCTOS), borrarColeccion(COL_CATEGORIAS), borrarColeccion(COL_PEDIDOS)])
+    .then(()=>{
+      yaSembrado = { productos:false, categorias:false, pedidos:false };
+      seed.products.forEach(p=>guardarProducto(p));
+      seed.categories.forEach(c=>guardarCategoriaDB(c));
+      seed.orders.forEach(o=>guardarPedido(o));
+    })
     .catch(e=>console.error(e));
 }
 
@@ -716,21 +758,26 @@ function renderBulkPreview(){
 
 function confirmBulkImport(){
   const categoriasSet = new Set(state.categories);
+  const categoriasNuevas = [];
+  const productosAfectados = [];
   state.bulkPreview.filter(r=>!r.error).forEach(r=>{
-    categoriasSet.add(r.categoria);
+    if(!categoriasSet.has(r.categoria)){ categoriasSet.add(r.categoria); categoriasNuevas.push(r.categoria); }
     const existente = state.products.find(p=>p.nombre.toLowerCase()===r.nombre.toLowerCase());
     if(existente){
       Object.assign(existente, { categoria:r.categoria, precio:r.precio, stock:r.stock, stockMin:r.stockMin });
+      productosAfectados.push(existente);
     } else {
-      state.products.push({ id:nextId('p', state.products), nombre:r.nombre, categoria:r.categoria, precio:r.precio, stock:r.stock, stockMin:r.stockMin, foto:'' });
+      const nuevo = { id:nextId('p', state.products), nombre:r.nombre, categoria:r.categoria, precio:r.precio, stock:r.stock, stockMin:r.stockMin, foto:'' };
+      state.products.push(nuevo);
+      productosAfectados.push(nuevo);
     }
   });
   state.categories = Array.from(categoriasSet);
   closeBulkModal();
   toast('Productos importados correctamente');
   render();
-  storageSet('products', state.products);
-  storageSet('categories', state.categories);
+  productosAfectados.forEach(p=>guardarProducto(p));
+  categoriasNuevas.forEach(c=>guardarCategoriaDB(c));
 }
 
 function handlePhotoSelect(input){
@@ -749,7 +796,7 @@ function handlePhotoSelect(input){
   reader.readAsDataURL(file);
 }
 
-async function saveProduct(id){
+function saveProduct(id){
   const nombre = document.getElementById('f-nombre').value.trim();
   const categoria = document.getElementById('f-categoria').value;
   const precio = parseFloat(document.getElementById('f-precio').value);
@@ -757,19 +804,21 @@ async function saveProduct(id){
   const stockMin = parseInt(document.getElementById('f-stockmin').value);
   const foto = document.getElementById('f-foto-data').value;
   if(!nombre || isNaN(precio) || isNaN(stock) || isNaN(stockMin)){ toast('Completa todos los campos correctamente'); return; }
+  let producto;
   if(id){
-    const p = productById(id);
-    Object.assign(p, {nombre, categoria, precio, stock, stockMin, foto});
+    producto = productById(id);
+    Object.assign(producto, {nombre, categoria, precio, stock, stockMin, foto});
   } else {
-    state.products.push({ id:nextId('p', state.products), nombre, categoria, precio, stock, stockMin, foto });
+    producto = { id:nextId('p', state.products), nombre, categoria, precio, stock, stockMin, foto };
+    state.products.push(producto);
   }
   closeModal(); toast('Producto guardado'); render();
-  storageSet('products', state.products);
+  guardarProducto(producto);
 }
 function deleteProduct(id){
   state.products = state.products.filter(p=>p.id!==id);
   toast('Producto eliminado'); render();
-  storageSet('products', state.products);
+  eliminarProductoDB(id);
 }
 
 function renderAdminCategorias(){
@@ -801,13 +850,13 @@ function addCategory(){
   if(state.categories.includes(val)){ toast('Esa categoría ya existe'); return; }
   state.categories.push(val);
   toast('Categoría agregada'); render();
-  storageSet('categories', state.categories);
+  guardarCategoriaDB(val);
 }
 function deleteCategory(c){
   if(state.products.some(p=>p.categoria===c)){ toast('No se puede eliminar: hay productos en esta categoría'); return; }
   state.categories = state.categories.filter(x=>x!==c);
   toast('Categoría eliminada'); render();
-  storageSet('categories', state.categories);
+  eliminarCategoriaDB(c);
 }
 
 function renderAdminPedidos(){
@@ -841,7 +890,7 @@ function avanzarEstado(id){
   if(o.estado==='En camino' && !o.horaSalida) o.horaSalida = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
   if(o.estado==='Entregado' && !o.horaEntrega) o.horaEntrega = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
   toast(`Pedido ${id}: ${o.estado}`); render();
-  storageSet('orders', state.orders);
+  guardarPedido(o);
 }
 
 /* ================= CLIENTE ================= */
@@ -1012,11 +1061,11 @@ async function confirmarPedido(){
   };
   state.orders.push(order);
   state.misPedidosIds.push(order.id);
-  items.forEach(i=>{ productById(i.productId).stock -= i.cantidad; });
+  const productosActualizados = items.map(i=>{ const p = productById(i.productId); p.stock -= i.cantidad; return p; });
   state.cart = [];
   toast('¡Pedido confirmado!'); state.clienteTab='pedidos'; render();
-  storageSet('orders', state.orders);
-  storageSet('products', state.products);
+  guardarPedido(order);
+  productosActualizados.forEach(p=>guardarProducto(p));
   notificarNuevoPedido(order);
 }
 
@@ -1109,14 +1158,14 @@ function iniciarReparto(id){
   o.horaSalida = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
   toast(`Reparto iniciado — salida registrada a las ${o.horaSalida}`);
   render();
-  storageSet('orders', state.orders);
+  guardarPedido(o);
 }
 function marcarEntregado(id){
   const o = state.orders.find(x=>x.id===id);
   o.estado = 'Entregado';
   o.horaEntrega = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
   toast(`Pedido ${id} entregado`); render();
-  storageSet('orders', state.orders);
+  guardarPedido(o);
 }
 
 /* ---------- Init ---------- */
