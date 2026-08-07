@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-app-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   :root{
     --paper:#F7F8FB;
@@ -267,6 +268,31 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 const COLECCION = 'tienda';
+
+/* ---------- Notificación por correo (EmailJS) ---------- */
+const EMAILJS_SERVICE_ID = 'service_8682cq8';
+const EMAILJS_TEMPLATE_ID = 'template_0h6dosb';
+if(typeof emailjs !== 'undefined'){
+  emailjs.init({ publicKey: '25q-Ia06SRxdB1ApE' });
+}
+function notificarNuevoPedido(order){
+  if(typeof emailjs === 'undefined') return;
+  const productos = order.items.map(i=>{
+    const p = productById(i.productId);
+    return `${i.cantidad}x ${p ? p.nombre : 'Producto'} (${fmt(i.precio)} c/u)`;
+  }).join('\n');
+  const params = {
+    pedido_id: order.id,
+    cliente_nombre: order.cliente,
+    cliente_celular: order.telefono,
+    tipo_entrega: order.tipoEntrega === 'delivery' ? 'Delivery' : 'Recojo en tienda',
+    direccion: order.direccion || 'No aplica (recojo en tienda)',
+    productos,
+    total: fmt(order.total)
+  };
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+    .catch(e => console.error('No se pudo enviar la notificación por correo', e));
+}
 let state = {
   role: 'cliente',
   adminTab: 'resumen',
@@ -991,6 +1017,7 @@ async function confirmarPedido(){
   toast('¡Pedido confirmado!'); state.clienteTab='pedidos'; render();
   storageSet('orders', state.orders);
   storageSet('products', state.products);
+  notificarNuevoPedido(order);
 }
 
 function renderMisPedidos(){
