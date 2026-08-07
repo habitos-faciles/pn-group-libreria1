@@ -243,7 +243,6 @@
     </div>
     <div class="role-tabs" id="roleTabs"></div>
   </div>
-  <p id="estadoConexion" style="font-size:12px; font-weight:600; margin:-6px 0 14px">🟡 Verificando conexión…</p>
 
   <div id="content"></div>
 
@@ -358,6 +357,7 @@ let state = {
   orders: [],
   cart: [], // {productId, cantidad}
   catFilter: 'Todas',
+  searchQuery: '',
   loading: true
 };
 state.misPedidosIds = [];
@@ -991,11 +991,21 @@ function setClienteTab(t){ state.clienteTab=t; render(); }
 
 function renderCatalogo(){
   const cats = ['Todas', ...state.categories];
-  const filtered = state.catFilter==='Todas' ? state.products : state.products.filter(p=>p.categoria===state.catFilter);
+  const q = state.searchQuery.trim().toLowerCase();
+  let filtered = state.catFilter==='Todas' ? state.products : state.products.filter(p=>p.categoria===state.catFilter);
+  if(q) filtered = filtered.filter(p=> p.nombre.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q));
   return `
+    <div class="field" style="max-width:420px; margin-bottom:14px">
+      <div style="position:relative">
+        <input id="searchInput" type="text" placeholder="🔎 Buscar producto por nombre…" value="${state.searchQuery.replace(/"/g,'&quot;')}"
+          oninput="setSearchQuery(this.value)" style="padding-left:14px">
+        ${state.searchQuery ? `<button onclick="setSearchQuery('')" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:none; background:none; cursor:pointer; color:var(--ink-soft); font-size:16px">✕</button>` : ''}
+      </div>
+    </div>
     <div class="cat-filter">
       ${cats.map(c=>`<button class="cat-chip ${state.catFilter===c?'active':''}" onclick="setCatFilter('${c}')">${c}</button>`).join('')}
     </div>
+    ${q ? `<p style="font-size:13px; color:var(--ink-soft); margin:10px 0">Resultados para "<strong>${state.searchQuery}</strong>": ${filtered.length} producto${filtered.length===1?'':'s'}</p>` : ''}
     <div class="grid cards-4">
       ${filtered.map(p=>`
         <div class="product-card">
@@ -1009,10 +1019,16 @@ function renderCatalogo(){
           </div>
         </div>`).join('')}
     </div>
-    ${filtered.length===0?'<div class="empty">No hay productos en esta categoría.</div>':''}
+    ${filtered.length===0?`<div class="empty">${q ? 'No encontramos productos con ese nombre.' : 'No hay productos en esta categoría.'}</div>`:''}
   `;
 }
 function setCatFilter(c){ state.catFilter=c; render(); }
+function setSearchQuery(val){
+  state.searchQuery = val;
+  render();
+  const input = document.getElementById('searchInput');
+  if(input){ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
 function addToCart(id){
   const p = productById(id);
   const line = state.cart.find(c=>c.productId===id);
