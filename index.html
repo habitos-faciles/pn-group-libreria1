@@ -688,7 +688,7 @@ function renderBulkPreview(){
   confirmBtn.textContent = `Confirmar importación (${validos})`;
 }
 
-async function confirmBulkImport(){
+function confirmBulkImport(){
   const categoriasSet = new Set(state.categories);
   state.bulkPreview.filter(r=>!r.error).forEach(r=>{
     categoriasSet.add(r.categoria);
@@ -700,10 +700,11 @@ async function confirmBulkImport(){
     }
   });
   state.categories = Array.from(categoriasSet);
-  await Promise.all([storageSet('products', state.products), storageSet('categories', state.categories)]);
-  toast('Productos importados correctamente');
   closeBulkModal();
+  toast('Productos importados correctamente');
   render();
+  storageSet('products', state.products);
+  storageSet('categories', state.categories);
 }
 
 function handlePhotoSelect(input){
@@ -736,13 +737,13 @@ async function saveProduct(id){
   } else {
     state.products.push({ id:nextId('p', state.products), nombre, categoria, precio, stock, stockMin, foto });
   }
-  await storageSet('products', state.products);
   closeModal(); toast('Producto guardado'); render();
+  storageSet('products', state.products);
 }
-async function deleteProduct(id){
+function deleteProduct(id){
   state.products = state.products.filter(p=>p.id!==id);
-  await storageSet('products', state.products);
   toast('Producto eliminado'); render();
+  storageSet('products', state.products);
 }
 
 function renderAdminCategorias(){
@@ -767,20 +768,20 @@ function renderAdminCategorias(){
     </div>
   `;
 }
-async function addCategory(){
+function addCategory(){
   const input = document.getElementById('newCatInput');
   const val = input.value.trim();
   if(!val){ toast('Escribe un nombre de categoría'); return; }
   if(state.categories.includes(val)){ toast('Esa categoría ya existe'); return; }
   state.categories.push(val);
-  await storageSet('categories', state.categories);
   toast('Categoría agregada'); render();
+  storageSet('categories', state.categories);
 }
-async function deleteCategory(c){
+function deleteCategory(c){
   if(state.products.some(p=>p.categoria===c)){ toast('No se puede eliminar: hay productos en esta categoría'); return; }
   state.categories = state.categories.filter(x=>x!==c);
-  await storageSet('categories', state.categories);
   toast('Categoría eliminada'); render();
+  storageSet('categories', state.categories);
 }
 
 function renderAdminPedidos(){
@@ -806,15 +807,15 @@ function renderAdminPedidos(){
     </div>
   `;
 }
-async function avanzarEstado(id){
+function avanzarEstado(id){
   const o = state.orders.find(x=>x.id===id);
   const seq = estadosPara(o.tipoEntrega);
   const idx = seq.indexOf(o.estado);
   if(idx < seq.length-1) o.estado = seq[idx+1];
   if(o.estado==='En camino' && !o.horaSalida) o.horaSalida = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
   if(o.estado==='Entregado' && !o.horaEntrega) o.horaEntrega = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
-  await storageSet('orders', state.orders);
   toast(`Pedido ${id}: ${o.estado}`); render();
+  storageSet('orders', state.orders);
 }
 
 /* ================= CLIENTE ================= */
@@ -987,8 +988,9 @@ async function confirmarPedido(){
   state.misPedidosIds.push(order.id);
   items.forEach(i=>{ productById(i.productId).stock -= i.cantidad; });
   state.cart = [];
-  await Promise.all([storageSet('orders', state.orders), storageSet('products', state.products)]);
   toast('¡Pedido confirmado!'); state.clienteTab='pedidos'; render();
+  storageSet('orders', state.orders);
+  storageSet('products', state.products);
 }
 
 function renderMisPedidos(){
@@ -1074,20 +1076,20 @@ function renderRepartidor(){
     </div>
   `;
 }
-async function iniciarReparto(id){
+function iniciarReparto(id){
   const o = state.orders.find(x=>x.id===id);
   o.estado = 'En camino';
   o.horaSalida = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
-  await storageSet('orders', state.orders);
   toast(`Reparto iniciado — salida registrada a las ${o.horaSalida}`);
   render();
+  storageSet('orders', state.orders);
 }
-async function marcarEntregado(id){
+function marcarEntregado(id){
   const o = state.orders.find(x=>x.id===id);
   o.estado = 'Entregado';
   o.horaEntrega = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
-  await storageSet('orders', state.orders);
   toast(`Pedido ${id} entregado`); render();
+  storageSet('orders', state.orders);
 }
 
 /* ---------- Init ---------- */
