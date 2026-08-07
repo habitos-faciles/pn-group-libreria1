@@ -329,6 +329,26 @@ function notificarNuevoPedido(order){
       .catch(e => console.error('No se pudo enviar la notificación por correo', e));
   }catch(e){ console.error('No se pudo enviar la notificación por correo', e); }
 }
+function enviarCorreoPrueba(){
+  const el = document.getElementById('resultadoCorreoPrueba');
+  if(el){ el.textContent = 'Enviando…'; el.style.color = 'var(--ink-soft)'; }
+  if(typeof emailjs === 'undefined'){
+    if(el){ el.textContent = '🔴 El script de EmailJS nunca cargó en el navegador (revisa tu conexión o si algo lo está bloqueando).'; el.style.color = 'var(--stamp)'; }
+    return;
+  }
+  const params = {
+    pedido_id: 'PRUEBA-001',
+    cliente_nombre: 'Cliente de prueba',
+    cliente_celular: '999999999',
+    tipo_entrega: 'Delivery',
+    direccion: 'Dirección de prueba',
+    productos: '1x Producto de prueba (S/ 10.00 c/u)',
+    total: 'S/ 10.00'
+  };
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+    .then(res=>{ if(el){ el.textContent = '🟢 Enviado correctamente (código '+res.status+'). Revisa tu bandeja en 1-2 minutos.'; el.style.color = 'var(--forest)'; } })
+    .catch(e=>{ if(el){ el.textContent = '🔴 Error al enviar: '+(e && e.text ? e.text : JSON.stringify(e)); el.style.color = 'var(--stamp)'; } console.error(e); });
+}
 let state = {
   role: 'cliente',
   adminTab: 'resumen',
@@ -618,6 +638,12 @@ function renderAdminResumen(){
       ${stockBajo ? `<table><thead><tr><th>Producto</th><th>Categoría</th><th>Stock</th><th>Mínimo</th></tr></thead><tbody>
         ${state.products.filter(p=>p.stock<=p.stockMin).map(p=>`<tr><td>${p.nombre}</td><td>${p.categoria}</td><td class="mono">${p.stock}</td><td class="mono">${p.stockMin}</td></tr>`).join('')}
       </tbody></table>` : `<div class="empty">Todo el inventario está en niveles saludables.</div>`}
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Notificaciones por correo</h3></div>
+      <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px">Prueba si el envío de correo está funcionando, sin necesidad de hacer un pedido real.</p>
+      <button class="btn btn-outline btn-sm" onclick="enviarCorreoPrueba()">📧 Enviar correo de prueba</button>
+      <p id="resultadoCorreoPrueba" style="font-size:13px; margin-top:10px"></p>
     </div>
   `;
 }
