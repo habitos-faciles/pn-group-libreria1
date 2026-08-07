@@ -260,20 +260,22 @@ const firebaseConfig = {
   messagingSenderId: "1005773980688",
   appId: "1:1005773980688:web:0b6cccd7f42e9eba293695"
 };
-if(typeof firebase === 'undefined'){
-  document.getElementById('app').innerHTML = '<div class="empty">No se pudo cargar la conexión a la base de datos. Verifica tu conexión a internet y recarga la página.</div>';
-  throw new Error('El SDK de Firebase no se cargó (revisa la conexión a internet o si el script fue bloqueado).');
+let db = null;
+try{
+  if(typeof firebase === 'undefined') throw new Error('El SDK de Firebase no se cargó');
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  db.settings({ experimentalForceLongPolling: true, experimentalAutoDetectLongPolling: false, useFetchStreams: false, merge: true });
+}catch(e){
+  console.error('No se pudo inicializar la conexión a la base de datos', e);
 }
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-db.settings({ experimentalForceLongPolling: true, useFetchStreams: false, merge: true });
 
 /* ---------- Notificación por correo (EmailJS) ---------- */
 const EMAILJS_SERVICE_ID = 'service_8682cq8';
 const EMAILJS_TEMPLATE_ID = 'template_0h6dosb';
-if(typeof emailjs !== 'undefined'){
-  emailjs.init({ publicKey: '25q-Ia06SRxdB1ApE' });
-}
+try{
+  if(typeof emailjs !== 'undefined') emailjs.init({ publicKey: '25q-Ia06SRxdB1ApE' });
+}catch(e){ console.error('No se pudo inicializar EmailJS', e); }
 function notificarNuevoPedido(order){
   if(typeof emailjs === 'undefined') return;
   const productos = order.items.map(i=>{
@@ -289,8 +291,10 @@ function notificarNuevoPedido(order){
     productos,
     total: fmt(order.total)
   };
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
-    .catch(e => console.error('No se pudo enviar la notificación por correo', e));
+  try{
+    emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+      .catch(e => console.error('No se pudo enviar la notificación por correo', e));
+  }catch(e){ console.error('No se pudo enviar la notificación por correo', e); }
 }
 let state = {
   role: 'cliente',
@@ -320,23 +324,28 @@ const COL_CATEGORIAS = 'categorias';
 const COL_PEDIDOS = 'pedidos';
 
 function guardarProducto(p){
+  if(!db) return;
   db.collection(COL_PRODUCTOS).doc(p.id).set(p)
     .then(()=>console.log('✓ Producto guardado en la nube:', p.id))
     .catch(e=>{ console.error(e); toast('No se pudo guardar el producto en la base de datos'); });
 }
 function eliminarProductoDB(id){
+  if(!db) return;
   db.collection(COL_PRODUCTOS).doc(id).delete()
     .catch(e=>{ console.error(e); toast('No se pudo eliminar el producto de la base de datos'); });
 }
 function guardarCategoriaDB(nombre){
+  if(!db) return;
   db.collection(COL_CATEGORIAS).doc(nombre).set({ nombre })
     .catch(e=>{ console.error(e); toast('No se pudo guardar la categoría en la base de datos'); });
 }
 function eliminarCategoriaDB(nombre){
+  if(!db) return;
   db.collection(COL_CATEGORIAS).doc(nombre).delete()
     .catch(e=>{ console.error(e); toast('No se pudo eliminar la categoría de la base de datos'); });
 }
 function guardarPedido(o){
+  if(!db) return;
   db.collection(COL_PEDIDOS).doc(o.id).set(o)
     .catch(e=>{ console.error(e); toast('No se pudo guardar el pedido en la base de datos'); });
 }
@@ -379,6 +388,10 @@ function loadData(){
    la base de datos) — nunca vuelve a sobrescribir productos ya guardados. */
 let yaSembrado = { productos:false, categorias:false, pedidos:false };
 function activarSincronizacionEnVivo(seed){
+  if(!db){
+    toast('Trabajando sin conexión a la base de datos — los cambios no se guardarán');
+    return;
+  }
   db.collection(COL_PRODUCTOS).onSnapshot(snap=>{
     if(snap.empty && !yaSembrado.productos){
       yaSembrado.productos = true;
@@ -431,6 +444,7 @@ function resetAll(){
   state.categories = seed.categories; state.products = seed.products; state.orders = seed.orders; state.cart = [];
   render();
   toast('Datos de ejemplo restablecidos');
+  if(!db) return;
   const borrarColeccion = (col)=> db.collection(col).get().then(snap=>{
     const batch = db.batch();
     snap.docs.forEach(d=>batch.delete(d.ref));
