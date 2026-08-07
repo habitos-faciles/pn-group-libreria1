@@ -266,7 +266,7 @@ if(typeof firebase === 'undefined'){
 }
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
+db.settings({ experimentalForceLongPolling: true, useFetchStreams: false, merge: true });
 
 /* ---------- Notificación por correo (EmailJS) ---------- */
 const EMAILJS_SERVICE_ID = 'service_8682cq8';
@@ -321,6 +321,7 @@ const COL_PEDIDOS = 'pedidos';
 
 function guardarProducto(p){
   db.collection(COL_PRODUCTOS).doc(p.id).set(p)
+    .then(()=>console.log('✓ Producto guardado en la nube:', p.id))
     .catch(e=>{ console.error(e); toast('No se pudo guardar el producto en la base de datos'); });
 }
 function eliminarProductoDB(id){
