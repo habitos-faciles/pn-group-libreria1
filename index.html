@@ -265,6 +265,7 @@ if(typeof firebase === 'undefined'){
 }
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 const COLECCION = 'tienda';
 let state = {
   role: 'cliente',
@@ -286,12 +287,6 @@ const ACCESS = {
 state.auth = { admin:false, repartidor:false };
 
 /* ---------- Persistencia (Firebase Firestore) ---------- */
-async function storageGet(key){
-  try{
-    const doc = await db.collection(COLECCION).doc(key).get();
-    return doc.exists ? doc.data().value : null;
-  }catch(e){ console.error(e); return null; }
-}
 async function storageSet(key, value){
   try{ await db.collection(COLECCION).doc(key).set({ value, actualizado: firebase.firestore.FieldValue.serverTimestamp() }); }
   catch(e){ console.error(e); toast('No se pudo guardar en la base de datos: '+key); }
@@ -316,43 +311,44 @@ function seedData(){
   return { categories, products, orders };
 }
 
-async function loadData(){
-  try{
-    const [cats, prods, ords] = await Promise.all([storageGet('categories'), storageGet('products'), storageGet('orders')]);
-    if(!cats || !prods || !ords){
-      const seed = seedData();
-      state.categories = cats || seed.categories;
-      state.products = prods || seed.products;
-      state.orders = ords || seed.orders;
-      await Promise.all([
-        !cats ? storageSet('categories', state.categories) : Promise.resolve(),
-        !prods ? storageSet('products', state.products) : Promise.resolve(),
-        !ords ? storageSet('orders', state.orders) : Promise.resolve()
-      ]);
-    } else {
-      state.categories = cats; state.products = prods; state.orders = ords;
-    }
-  }catch(e){
-    console.error(e);
-    toast('No se pudo conectar a la base de datos. Revisa tu conexión a internet.');
-  }
+function loadData(){
+  /* Muestra la app de inmediato con datos de respaldo, sin esperar a la nube.
+     Si la conexión con Firestore tarda o falla momentáneamente (redes con proxy,
+     3G, etc.), el usuario igual ve su tienda funcionando. */
+  const seed = seedData();
+  state.categories = seed.categories;
+  state.products = seed.products;
+  state.orders = seed.orders;
   state.loading = false;
   render();
   showWelcome();
-  activarSincronizacionEnVivo();
+  activarSincronizacionEnVivo(seed);
 }
 
-/* Escucha cambios en tiempo real: si otro dispositivo (cliente/admin/repartidor)
-   guarda datos nuevos, esta pantalla se actualiza sola, sin recargar la página. */
-function activarSincronizacionEnVivo(){
-  db.collection(COLECCION).doc('products').onSnapshot(doc=>{
-    if(doc.exists){ state.products = doc.data().value; if(!state.loading) render(); }
-  });
-  db.collection(COLECCION).doc('categories').onSnapshot(doc=>{
-    if(doc.exists){ state.categories = doc.data().value; if(!state.loading) render(); }
-  });
-  db.collection(COLECCION).doc('orders').onSnapshot(doc=>{
-    if(doc.exists){ state.orders = doc.data().value; if(!state.loading) render(); }
+/* Escucha cambios en tiempo real: en cuanto la conexión con Firestore esté lista,
+   reemplaza los datos de respaldo por los reales, y si otro dispositivo
+   (cliente/admin/repartidor) guarda datos nuevos, esta pantalla se actualiza
+   sola, sin recargar la página. Si un documento no existe todavía (primera vez
+   que se usa la base de datos), lo crea en segundo plano sin bloquear la pantalla. */
+function activarSincronizacionEnVivo(seed){
+  const yaSembrado = {};
+  const combos = [
+    { key:'categories', seedVal: seed.categories },
+    { key:'products', seedVal: seed.products },
+    { key:'orders', seedVal: seed.orders }
+  ];
+  combos.forEach(({key, seedVal})=>{
+    db.collection(COLECCION).doc(key).onSnapshot(doc=>{
+      if(doc.exists){
+        state[key] = doc.data().value;
+        render();
+      } else if(!yaSembrado[key]){
+        yaSembrado[key] = true;
+        storageSet(key, seedVal);
+      }
+    }, err=>{
+      console.error('Sincronización', key, err);
+    });
   });
 }
 
@@ -372,12 +368,13 @@ function showWelcome(){
 }
 function closeWelcome(){ const m=document.getElementById('welcomeModal'); if(m) m.remove(); }
 
-async function resetAll(){
+function resetAll(){
   const seed = seedData();
   state.categories = seed.categories; state.products = seed.products; state.orders = seed.orders; state.cart = [];
-  await Promise.all([storageSet('categories', state.categories), storageSet('products', state.products), storageSet('orders', state.orders)]);
-  toast('Datos de ejemplo restablecidos');
   render();
+  toast('Datos de ejemplo restablecidos');
+  Promise.all([storageSet('categories', state.categories), storageSet('products', state.products), storageSet('orders', state.orders)])
+    .catch(e=>console.error(e));
 }
 
 /* ---------- Utilidades ---------- */
