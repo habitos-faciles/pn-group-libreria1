@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PN Group Librería — Sistema de Pedidos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-app-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --paper:#F7F8FB;
+    --paper-line:#DFE4EC;
+    --ink:#16233F;
+    --ink-soft:#5C6B82;
+    --forest:#16233F;
+    --forest-dark:#0D1730;
+    --mustard:#B4903F;
+    --stamp:#A23A2E;
+    --stamp-soft:#EFD9D3;
+    --blue:#4C6EA6;
+    --blue-soft:#E1E7F1;
+    --green-soft:#EFE4C9;
+    --card:#FFFFFF;
+    --white:#FFFFFF;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Public Sans', sans-serif;
+    color:var(--ink);
+    background-color:var(--paper);
+    background-image:
+      linear-gradient(var(--paper-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-attachment: fixed;
+    min-height:100vh;
+  }
+  h1,h2,h3,h4{ font-family:'Fraunces', serif; color:var(--forest-dark); margin:0 0 4px; }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .app{ max-width:1080px; margin:0 auto; padding:20px 20px 60px; position:relative; z-index:1; }
+  .bg-illustration{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+  .bg-illustration svg{ position:absolute; right:-40px; bottom:-30px; width:620px; height:620px; opacity:.08; }
+  @media(max-width:760px){ .bg-illustration svg{ width:420px; height:420px; right:-60px; bottom:-20px; } }
+
+  /* Header */
+  .masthead{
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:3px solid var(--ink); padding-bottom:14px; margin-bottom:18px;
+    flex-wrap:wrap; gap:10px;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:44px; height:44px; border-radius:50%; background:var(--forest);
+    border:2px solid var(--mustard);
+    display:flex; align-items:center; justify-content:center; color:var(--white);
+    font-family:'Fraunces',serif; font-weight:700; font-size:18px; flex-shrink:0;
+  }
+  .brand h1{ font-size:22px; letter-spacing:.2px; }
+  .brand p{ margin:0; font-size:12px; color:var(--ink-soft); letter-spacing:.5px; text-transform:uppercase; }
+
+  .role-tabs{ display:flex; gap:6px; background:var(--card); padding:4px; border-radius:999px; border:1px solid var(--paper-line); }
+  .role-tab{
+    border:none; background:transparent; padding:8px 16px; border-radius:999px; cursor:pointer;
+    font-family:'Public Sans'; font-weight:600; font-size:13px; color:var(--ink-soft);
+  }
+  .role-tab.active{ background:var(--forest); color:var(--white); }
+
+  /* Subnav */
+  .subnav{ display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  .subnav button{
+    border:1.5px solid var(--ink); background:var(--white); padding:7px 14px; border-radius:6px;
+    font-family:'Public Sans'; font-weight:600; font-size:13px; cursor:pointer; color:var(--ink);
+  }
+  .subnav button.active{ background:var(--ink); color:var(--white); }
+
+  /* Cards / layout */
+  .grid{ display:grid; gap:14px; }
+  .cards-4{ grid-template-columns:repeat(4,1fr); }
+  .cards-2{ grid-template-columns:repeat(2,1fr); }
+  @media(max-width:760px){ .cards-4{grid-template-columns:repeat(2,1fr);} .cards-2{grid-template-columns:1fr;} }
+
+  .stat-card{ background:var(--card); border:1px solid var(--paper-line); border-radius:var(--radius); padding:14px 16px; }
+  .stat-card .num{ font-family:'Fraunces',serif; font-size:30px; font-weight:700; color:var(--forest-dark); }
+  .stat-card .label{ font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); }
+  .stat-card.alert .num{ color:var(--stamp); }
+
+  .panel{ background:var(--card); border:1px solid var(--paper-line); border-radius:var(--radius); padding:18px; margin-bottom:18px; }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px; }
+
+  /* Ledger table */
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  th{ text-align:left; font-family:'IBM Plex Mono'; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); border-bottom:2px solid var(--ink); padding:8px 8px; }
+  td{ padding:9px 8px; border-bottom:1px solid var(--paper-line); vertical-align:middle; }
+  tr:hover td{ background:rgba(60,91,66,0.04); }
+  .price{ font-family:'IBM Plex Mono'; font-weight:600; }
+
+  /* Buttons */
+  .btn{ border:none; border-radius:6px; padding:8px 14px; font-family:'Public Sans'; font-weight:600; font-size:13px; cursor:pointer; }
+  .btn-primary{ background:var(--forest); color:var(--white); }
+  .btn-primary:hover{ background:var(--forest-dark); }
+  .btn-outline{ background:transparent; border:1.5px solid var(--ink); color:var(--ink); }
+  .btn-danger{ background:transparent; border:1.5px solid var(--stamp); color:var(--stamp); }
+  .btn-sm{ padding:5px 10px; font-size:12px; }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+
+  /* Stamp badges (signature element) */
+  .stamp-badge{
+    display:inline-flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono'; font-weight:600; font-size:10.5px; letter-spacing:.6px; text-transform:uppercase;
+    border:1.5px dashed currentColor; border-radius:999px; padding:4px 10px;
+    transform:rotate(-2deg);
+  }
+  .st-pendiente{ color:var(--stamp); }
+  .st-preparando{ color:var(--mustard); }
+  .st-camino{ color:var(--blue); }
+  .st-listo{ color:var(--blue); }
+  .st-entregado{ color:var(--forest); }
+  .st-bajo{ color:var(--stamp); background:var(--stamp-soft); border-style:solid; }
+  .st-ok{ color:var(--forest); }
+
+  .pill{ display:inline-block; padding:3px 10px; border-radius:999px; font-size:11.5px; font-weight:600; background:var(--green-soft); color:var(--forest-dark); }
+
+  /* Forms */
+  label{ font-size:12px; font-weight:600; color:var(--ink-soft); display:block; margin-bottom:4px; }
+  input, select, textarea{
+    width:100%; padding:8px 10px; border:1.5px solid var(--paper-line); border-radius:6px;
+    font-family:'Public Sans'; font-size:13.5px; background:var(--white); color:var(--ink);
+  }
+  input:focus, select:focus, textarea:focus{ outline:2px solid var(--forest); outline-offset:1px; border-color:var(--forest); }
+  .field{ margin-bottom:12px; }
+  .form-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media(max-width:600px){ .form-row{grid-template-columns:1fr;} }
+
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(33,30,23,.45); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
+  .modal{ background:var(--white); border-radius:var(--radius); padding:22px; width:100%; max-width:420px; max-height:90vh; overflow:auto; }
+
+  /* Catalog */
+  .cat-filter{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .cat-chip{ border:1.5px solid var(--ink); background:var(--white); padding:5px 12px; border-radius:999px; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .cat-chip.active{ background:var(--ink); color:var(--white); }
+  .product-card{ background:var(--white); border:1px solid var(--paper-line); border-radius:var(--radius); padding:14px; display:flex; flex-direction:column; gap:6px; }
+  .product-card h4{ font-size:15px; }
+  .product-card .cat-tag{ font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.4px; }
+  .product-card .row-bottom{ display:flex; align-items:center; justify-content:space-between; margin-top:auto; padding-top:8px; }
+  .product-card .thumb{ width:100%; height:110px; object-fit:cover; border-radius:6px; border:1px solid var(--paper-line); background:var(--white); }
+  .thumb-sm{ width:38px; height:38px; object-fit:cover; border-radius:5px; border:1px solid var(--paper-line); vertical-align:middle; margin-right:8px; background:var(--white); }
+  .thumb-placeholder{ width:38px; height:38px; border-radius:5px; border:1.5px dashed var(--paper-line); display:inline-flex; align-items:center; justify-content:center; font-size:14px; color:var(--ink-soft); vertical-align:middle; margin-right:8px; }
+  .photo-upload{ display:flex; align-items:center; gap:10px; }
+  .photo-preview{ width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--paper-line); background:var(--white); }
+  .photo-preview-placeholder{ width:64px; height:64px; border-radius:8px; border:1.5px dashed var(--paper-line); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--ink-soft); text-align:center; }
+
+  .cart-line{ display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--paper-line); gap:10px; }
+  .qty-input{ width:56px; text-align:center; }
+
+  .empty{ text-align:center; padding:30px 10px; color:var(--ink-soft); font-size:13.5px; }
+
+  .toast-wrap{ position:fixed; bottom:18px; right:18px; display:flex; flex-direction:column; gap:8px; z-index:100; }
+  .toast{ background:var(--ink); color:var(--white); padding:10px 16px; border-radius:8px; font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.2); animation:slidein .25s ease-out; }
+  @keyframes slidein{ from{ transform:translateY(8px); opacity:0;} to{ transform:translateY(0); opacity:1;} }
+
+  .foot-note{ text-align:center; font-size:12px; color:var(--ink-soft); margin-top:24px; }
+  .link-reset{ background:none; border:none; color:var(--ink-soft); text-decoration:underline; cursor:pointer; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="bg-illustration" aria-hidden="true">
+  <svg viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">
+    <!-- Estantería de biblioteca -->
+    <g stroke="#16233F" stroke-width="3" fill="none">
+      <rect x="40" y="40" width="520" height="180" rx="6"/>
+      <line x1="40" y1="100" x2="560" y2="100"/>
+      <line x1="40" y1="160" x2="560" y2="160"/>
+    </g>
+    <g fill="#16233F">
+      <rect x="55" y="48" width="10" height="48"/>
+      <rect x="70" y="48" width="14" height="48"/>
+      <rect x="88" y="48" width="8" height="48"/>
+      <rect x="100" y="48" width="12" height="48"/>
+      <rect x="490" y="48" width="10" height="48"/>
+      <rect x="505" y="48" width="14" height="48"/>
+      <rect x="523" y="48" width="8" height="48"/>
+      <rect x="535" y="48" width="12" height="48"/>
+    </g>
+    <g fill="#B4903F">
+      <rect x="65" y="108" width="11" height="48"/>
+      <rect x="80" y="108" width="15" height="48"/>
+      <rect x="480" y="108" width="11" height="48"/>
+      <rect x="497" y="108" width="15" height="48"/>
+    </g>
+
+    <!-- Mesa -->
+    <rect x="150" y="420" width="300" height="14" rx="4" fill="#16233F"/>
+    <rect x="170" y="434" width="12" height="90" fill="#16233F"/>
+    <rect x="418" y="434" width="12" height="90" fill="#16233F"/>
+
+    <!-- Alumno sentado -->
+    <circle cx="300" cy="330" r="34" fill="#16233F"/>
+    <path d="M250 430 Q250 360 300 360 Q350 360 350 430 Z" fill="#16233F"/>
+    <rect x="230" y="410" width="140" height="20" rx="8" fill="#16233F"/>
+
+    <!-- Cuaderno abierto sobre la mesa -->
+    <g fill="#B4903F">
+      <path d="M255 405 L300 397 L300 425 L255 432 Z"/>
+      <path d="M345 405 L300 397 L300 425 L345 432 Z"/>
+    </g>
+    <g stroke="#F7F8FB" stroke-width="2">
+      <line x1="260" y1="410" x2="292" y2="404"/>
+      <line x1="260" y1="418" x2="292" y2="412"/>
+      <line x1="308" y1="404" x2="340" y2="410"/>
+      <line x1="308" y1="412" x2="340" y2="418"/>
+    </g>
+
+    <!-- Mochila junto a la silla -->
+    <rect x="145" y="460" width="46" height="60" rx="12" fill="#B4903F"/>
+    <rect x="158" y="450" width="20" height="20" rx="6" fill="#B4903F"/>
+
+    <!-- Pila de libros al lado -->
+    <rect x="400" y="470" width="70" height="14" rx="3" fill="#16233F"/>
+    <rect x="406" y="456" width="58" height="14" rx="3" fill="#B4903F"/>
+    <rect x="412" y="442" width="46" height="14" rx="3" fill="#16233F"/>
+
+    <!-- Lapicero con útiles -->
+    <rect x="205" y="452" width="24" height="34" rx="4" fill="#16233F"/>
+    <line x1="211" y1="452" x2="207" y2="428" stroke="#16233F" stroke-width="4" stroke-linecap="round"/>
+    <line x1="219" y1="452" x2="223" y2="424" stroke="#B4903F" stroke-width="4" stroke-linecap="round"/>
+  </svg>
+</div>
+<div class="app" id="app">
+  <div class="masthead">
+    <div class="brand">
+      <div class="brand-mark">PN</div>
+      <div>
+        <h1>PN Group Librería</h1>
+        <p>Profesionales &amp; Negocios Group · Sistema de pedidos</p>
+        <p style="margin:2px 0 0; font-size:11px; color:var(--ink-soft); text-transform:none; letter-spacing:.2px">📍 Av. Bernardo Balaguer 134, Ñaña</p>
+      </div>
+    </div>
+    <div class="role-tabs" id="roleTabs"></div>
+  </div>
+
+  <div id="content"></div>
+
+  <p class="foot-note">PN Group Librería — los pedidos se sincronizan en la nube entre cliente, administración y repartidor. <button class="link-reset" onclick="resetAll()">Restablecer datos de ejemplo</button></p>
+</div>
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* ---------- Conexión a Firebase (proyecto: pn-group-libreria) ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyAX7tahd3uBtHtOaw5a44LGEiPVPn26duA",
+  authDomain: "pn-group-libreria.firebaseapp.com",
+  projectId: "pn-group-libreria",
+  storageBucket: "pn-group-libreria.firebasestorage.app",
+  messagingSenderId: "1005773980688",
+  appId: "1:1005773980688:web:0b6cccd7f42e9eba293695"
+};
+if(typeof firebase === 'undefined'){
+  document.getElementById('app').innerHTML = '<div class="empty">No se pudo cargar la conexión a la base de datos. Verifica tu conexión a internet y recarga la página.</div>';
+  throw new Error('El SDK de Firebase no se cargó (revisa la conexión a internet o si el script fue bloqueado).');
+}
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const COLECCION = 'tienda';
+let state = {
+  role: 'cliente',
+  adminTab: 'resumen',
+  clienteTab: 'catalogo',
+  products: [],
+  categories: [],
+  orders: [],
+  cart: [], // {productId, cantidad}
+  catFilter: 'Todas',
+  loading: true
+};
+state.misPedidosIds = [];
+/* Claves de acceso — cámbialas por las que usará tu equipo */
+const ACCESS = {
+  admin: 'PN_ADMIN',
+  repartidor: 'PN_REPARTIDOR'
+};
+state.auth = { admin:false, repartidor:false };
+
+/* ---------- Persistencia (Firebase Firestore) ---------- */
+async function storageGet(key){
+  try{
+    const doc = await db.collection(COLECCION).doc(key).get();
+    return doc.exists ? doc.data().value : null;
+  }catch(e){ console.error(e); return null; }
+}
+async function storageSet(key, value){
+  try{ await db.collection(COLECCION).doc(key).set({ value, actualizado: firebase.firestore.FieldValue.serverTimestamp() }); }
+  catch(e){ console.error(e); toast('No se pudo guardar en la base de datos: '+key); }
+}
+
+function seedData(){
+  const categories = ['Útiles escolares','Libros','Oficina','Arte y manualidades','Mochilas'];
+  const products = [
+    { id:'p1', nombre:'Cuaderno cuadriculado 100 hojas', categoria:'Útiles escolares', precio:6.50, stock:42, stockMin:10, foto:'' },
+    { id:'p2', nombre:'Lapicero azul pack x12', categoria:'Útiles escolares', precio:9.00, stock:8, stockMin:10, foto:'' },
+    { id:'p3', nombre:'Set de colores 24 unid.', categoria:'Arte y manualidades', precio:15.90, stock:20, stockMin:5, foto:'' },
+    { id:'p4', nombre:'Cien años de soledad', categoria:'Libros', precio:45.00, stock:6, stockMin:3, foto:'' },
+    { id:'p5', nombre:'Papel bond A4 500 hojas', categoria:'Oficina', precio:22.00, stock:15, stockMin:5, foto:'' },
+    { id:'p6', nombre:'Folder manila x10', categoria:'Oficina', precio:7.20, stock:3, stockMin:8, foto:'' },
+    { id:'p7', nombre:'Mochila escolar reforzada', categoria:'Mochilas', precio:79.90, stock:12, stockMin:4, foto:'' },
+    { id:'p8', nombre:'Témperas x6 colores', categoria:'Arte y manualidades', precio:12.50, stock:0, stockMin:5, foto:'' },
+  ];
+  const orders = [
+    { id:'o1001', cliente:'María Quispe', telefono:'987654321', tipoEntrega:'delivery', direccion:'Av. Los Álamos 345, San Borja', ubicacion:{lat:-12.1075, lng:-76.9974}, items:[{productId:'p1',cantidad:2,precio:6.50},{productId:'p3',cantidad:1,precio:15.90}], total:28.90, estado:'En camino', horaSalida:'09:20 a. m.', fecha:'2026-08-04' },
+    { id:'o1002', cliente:'María Quispe', telefono:'987654321', tipoEntrega:'recojo', direccion:'', ubicacion:null, items:[{productId:'p4',cantidad:1,precio:45.00}], total:45.00, estado:'Entregado', fecha:'2026-08-01' },
+  ];
+  return { categories, products, orders };
+}
+
+async function loadData(){
+  try{
+    const [cats, prods, ords] = await Promise.all([storageGet('categories'), storageGet('products'), storageGet('orders')]);
+    if(!cats || !prods || !ords){
+      const seed = seedData();
+      state.categories = cats || seed.categories;
+      state.products = prods || seed.products;
+      state.orders = ords || seed.orders;
+      await Promise.all([
+        !cats ? storageSet('categories', state.categories) : Promise.resolve(),
+        !prods ? storageSet('products', state.products) : Promise.resolve(),
+        !ords ? storageSet('orders', state.orders) : Promise.resolve()
+      ]);
+    } else {
+      state.categories = cats; state.products = prods; state.orders = ords;
+    }
+  }catch(e){
+    console.error(e);
+    toast('No se pudo conectar a la base de datos. Revisa tu conexión a internet.');
+  }
+  state.loading = false;
+  render();
+  showWelcome();
+  activarSincronizacionEnVivo();
+}
+
+/* Escucha cambios en tiempo real: si otro dispositivo (cliente/admin/repartidor)
+   guarda datos nuevos, esta pantalla se actualiza sola, sin recargar la página. */
+function activarSincronizacionEnVivo(){
+  db.collection(COLECCION).doc('products').onSnapshot(doc=>{
+    if(doc.exists){ state.products = doc.data().value; if(!state.loading) render(); }
+  });
+  db.collection(COLECCION).doc('categories').onSnapshot(doc=>{
+    if(doc.exists){ state.categories = doc.data().value; if(!state.loading) render(); }
+  });
+  db.collection(COLECCION).doc('orders').onSnapshot(doc=>{
+    if(doc.exists){ state.orders = doc.data().value; if(!state.loading) render(); }
+  });
+}
+
+function showWelcome(){
+  if(state.welcomeShown || state.role!=='cliente') return;
+  state.welcomeShown = true;
+  const html = `
+    <div class="modal-backdrop" id="welcomeModal" onclick="if(event.target===this) closeWelcome()">
+      <div class="modal" style="text-align:center">
+        <div class="brand-mark" style="margin:0 auto 12px">PN</div>
+        <h3>¡Bienvenido a PN Group Librería!</h3>
+        <p style="font-size:14px; color:var(--ink-soft); line-height:1.6; margin:12px 0 18px">Bienvenido por ingresar a nuestra tienda virtual, aquí usted tiene la oportunidad de hacer su pedido y solicitar recojo en tienda o vía delivery. Felices de tenerlo.</p>
+        <button class="btn btn-primary" style="width:100%" onclick="closeWelcome()">Comenzar mi pedido</button>
+      </div>
+    </div>`;
+  document.getElementById('app').insertAdjacentHTML('beforeend', html);
+}
+function closeWelcome(){ const m=document.getElementById('welcomeModal'); if(m) m.remove(); }
+
+async function resetAll(){
+  const seed = seedData();
+  state.categories = seed.categories; state.products = seed.products; state.orders = seed.orders; state.cart = [];
+  await Promise.all([storageSet('categories', state.categories), storageSet('products', state.products), storageSet('orders', state.orders)]);
+  toast('Datos de ejemplo restablecidos');
+  render();
+}
+
+/* ---------- Utilidades ---------- */
+function fmt(n){ return 'S/ ' + Number(n).toFixed(2); }
+function toast(msg){
+  const el = document.createElement('div');
+  el.className='toast'; el.textContent=msg;
+  document.getElementById('toastWrap').appendChild(el);
+  setTimeout(()=>el.remove(), 2600);
+}
+function productById(id){ return state.products.find(p=>p.id===id); }
+function nextId(prefix, list){
+  let n = 1; while(list.some(x=>x.id === prefix+n)) n++; return prefix+n;
+}
+function estadosPara(tipo){
+  return tipo==='delivery'
+    ? ['Pendiente','Preparando','En camino','Entregado']
+    : ['Pendiente','Preparando','Listo para recoger','Entregado'];
+}
+function stampClass(estado){
+  return { 'Pendiente':'st-pendiente','Preparando':'st-preparando','En camino':'st-camino','Listo para recoger':'st-listo','Entregado':'st-entregado' }[estado] || '';
+}
+
+/* ---------- Render raíz ---------- */
+function render(){
+  renderRoleTabs();
+  const content = document.getElementById('content');
+  if(state.loading){ content.innerHTML = '<div class="empty">Cargando datos…</div>'; return; }
+  if((state.role==='admin' || state.role==='repartidor') && !state.auth[state.role]){
+    content.innerHTML = renderLogin(state.role);
+    return;
+  }
+  if(state.role==='admin') content.innerHTML = renderAdmin();
+  else if(state.role==='cliente') content.innerHTML = renderCliente();
+  else content.innerHTML = renderRepartidor();
+}
+
+function renderLogin(role){
+  const titulo = role==='admin' ? 'Acceso de Administración' : 'Acceso de Repartidor';
+  return `
+    <div class="panel" style="max-width:360px; margin:30px auto; text-align:center">
+      <div class="brand-mark" style="margin:0 auto 12px">🔒</div>
+      <h3>${titulo}</h3>
+      <p style="font-size:13px; color:var(--ink-soft); margin-bottom:16px">Ingresa la clave de acceso para continuar.</p>
+      <div class="field" style="text-align:left">
+        <label>Clave</label>
+        <input type="password" id="loginPass" placeholder="••••••••" onkeydown="if(event.key==='Enter') attemptLogin('${role}')">
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="attemptLogin('${role}')">Ingresar</button>
+      <button class="btn btn-outline" style="width:100%; margin-top:8px" onclick="setRole('cliente')">Volver al catálogo</button>
+    </div>
+  `;
+}
+function attemptLogin(role){
+  const val = document.getElementById('loginPass').value;
+  if(val === ACCESS[role]){
+    state.auth[role] = true;
+    toast('Acceso concedido');
+    render();
+  } else {
+    toast('Clave incorrecta');
+  }
+}
+function logout(role){
+  state.auth[role] = false;
+  state.role = 'cliente';
+  render();
+}
+
+function renderRoleTabs(){
+  const tabs = [
+    {k:'admin', label:'Administración', protegido:true},
+    {k:'cliente', label:'Cliente', protegido:false},
+    {k:'repartidor', label:'Repartidor', protegido:true}
+  ];
+  document.getElementById('roleTabs').innerHTML = tabs.map(t=>
+    `<button class="role-tab ${state.role===t.k?'active':''}" onclick="setRole('${t.k}')">${t.protegido && !state.auth[t.k] ? '🔒 ' : ''}${t.label}</button>`
+  ).join('');
+}
+function setRole(r){ state.role = r; render(); }
+
+/* ================= ADMIN ================= */
+function renderAdmin(){
+  const tabs = [
+    {k:'resumen', label:'Resumen'},
+    {k:'inventario', label:'Inventario'},
+    {k:'categorias', label:'Categorías'},
+    {k:'pedidos', label:'Pedidos'}
+  ];
+  const nav = `<div class="subnav">${tabs.map(t=>`<button class="${state.adminTab===t.k?'active':''}" onclick="setAdminTab('${t.k}')">${t.label}</button>`).join('')}<button style="margin-left:auto" onclick="logout('admin')">Cerrar sesión</button></div>`;
+  let body='';
+  if(state.adminTab==='resumen') body = renderAdminResumen();
+  else if(state.adminTab==='inventario') body = renderAdminInventario();
+  else if(state.adminTab==='categorias') body = renderAdminCategorias();
+  else body = renderAdminPedidos();
+  return nav + body;
+}
+function setAdminTab(t){ state.adminTab=t; render(); }
+
+function renderAdminResumen(){
+  const totalProductos = state.products.length;
+  const stockBajo = state.products.filter(p=>p.stock<=p.stockMin).length;
+  const pendientes = state.orders.filter(o=>o.estado==='Pendiente').length;
+  const enCamino = state.orders.filter(o=>o.estado==='En camino').length;
+  const ventas = state.orders.filter(o=>o.estado==='Entregado').reduce((s,o)=>s+o.total,0);
+  return `
+    <div class="grid cards-4">
+      <div class="stat-card"><div class="num">${totalProductos}</div><div class="label">Productos</div></div>
+      <div class="stat-card ${stockBajo?'alert':''}"><div class="num">${stockBajo}</div><div class="label">Stock bajo</div></div>
+      <div class="stat-card ${pendientes?'alert':''}"><div class="num">${pendientes}</div><div class="label">Pedidos pendientes</div></div>
+      <div class="stat-card"><div class="num">${enCamino}</div><div class="label">En camino</div></div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-head"><h3>Ventas entregadas</h3></div>
+      <div class="stat-card" style="max-width:220px"><div class="num">${fmt(ventas)}</div><div class="label">Total acumulado</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Productos con stock bajo</h3></div>
+      ${stockBajo ? `<table><thead><tr><th>Producto</th><th>Categoría</th><th>Stock</th><th>Mínimo</th></tr></thead><tbody>
+        ${state.products.filter(p=>p.stock<=p.stockMin).map(p=>`<tr><td>${p.nombre}</td><td>${p.categoria}</td><td class="mono">${p.stock}</td><td class="mono">${p.stockMin}</td></tr>`).join('')}
+      </tbody></table>` : `<div class="empty">Todo el inventario está en niveles saludables.</div>`}
+    </div>
+  `;
+}
+
+function renderAdminInventario(){
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Inventario y stock</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" onclick="openBulkModal()">📥 Carga masiva (Excel)</button>
+          <button class="btn btn-primary btn-sm" onclick="openProductForm()">+ Nuevo producto</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+        ${state.products.map(p=>`
+          <tr>
+            <td>${p.foto ? `<img class="thumb-sm" src="${p.foto}" alt="">` : '<span class="thumb-placeholder">—</span>'}${p.nombre}</td>
+            <td><span class="pill">${p.categoria}</span></td>
+            <td class="price">${fmt(p.precio)}</td>
+            <td class="mono">${p.stock}</td>
+            <td>${p.stock<=p.stockMin ? '<span class="stamp-badge st-bajo">Stock bajo</span>' : '<span class="stamp-badge st-ok">OK</span>'}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-sm" onclick="openProductForm('${p.id}')">Editar</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}')">Eliminar</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${state.products.length===0 ? '<div class="empty">Aún no hay productos registrados.</div>' : ''}
+    </div>
+  `;
+}
+
+function openProductForm(id){
+  const p = id ? productById(id) : null;
+  const catOptions = state.categories.map(c=>`<option value="${c}" ${p&&p.categoria===c?'selected':''}>${c}</option>`).join('');
+  const html = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>${p?'Editar producto':'Nuevo producto'}</h3>
+        <div class="field">
+          <label>Foto del producto</label>
+          <div class="photo-upload">
+            ${p&&p.foto ? `<img id="photoPreview" class="photo-preview" src="${p.foto}">` : `<div id="photoPreview" class="photo-preview-placeholder">Sin foto</div>`}
+            <div>
+              <input type="file" id="f-foto" accept="image/*" onchange="handlePhotoSelect(this)">
+              <div style="font-size:11px; color:var(--ink-soft); margin-top:4px">JPG o PNG, ideal cuadrada</div>
+            </div>
+          </div>
+          <input type="hidden" id="f-foto-data" value="${p&&p.foto?p.foto:''}">
+        </div>
+        <div class="field"><label>Nombre del producto</label><input id="f-nombre" value="${p?p.nombre:''}"></div>
+        <div class="field"><label>Categoría</label><select id="f-categoria">${catOptions}</select></div>
+        <div class="form-row">
+          <div class="field"><label>Precio (S/)</label><input id="f-precio" type="number" step="0.10" min="0" value="${p?p.precio:''}"></div>
+          <div class="field"><label>Stock actual</label><input id="f-stock" type="number" min="0" value="${p?p.stock:''}"></div>
+        </div>
+        <div class="field"><label>Stock mínimo (alerta)</label><input id="f-stockmin" type="number" min="0" value="${p?p.stockMin:3}"></div>
+        <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveProduct('${p?p.id:''}')">Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function closeModal(){ const m=document.querySelector('.modal-backdrop'); if(m) m.remove(); }
+
+/* ---------- Carga masiva de productos (Excel/CSV) ---------- */
+function openBulkModal(){
+  const html = `
+    <div class="modal-backdrop" id="bulkModal" onclick="if(event.target===this) closeBulkModal()">
+      <div class="modal" style="max-width:580px">
+        <h3>Carga masiva de productos</h3>
+        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px; line-height:1.5">
+          Sube un archivo Excel (.xlsx) o CSV con las columnas <strong>Nombre, Categoría, Precio, Stock, Stock Mínimo</strong> — el mismo formato que puedes exportar de tu sistema de facturación. Si el nombre de un producto ya existe, se actualizará su precio y stock.
+        </p>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap">
+          <button type="button" class="btn btn-outline btn-sm" onclick="descargarPlantilla()">⬇ Descargar plantilla</button>
+          <input type="file" id="bulkFile" accept=".xlsx,.xls,.csv" onchange="handleBulkFile(this)">
+        </div>
+        <div id="bulkPreviewArea"></div>
+        <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="closeBulkModal()">Cancelar</button>
+          <button class="btn btn-primary" id="bulkConfirmBtn" style="display:none" onclick="confirmBulkImport()">Confirmar importación</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function closeBulkModal(){ const m=document.getElementById('bulkModal'); if(m) m.remove(); state.bulkPreview=[]; }
+
+function descargarPlantilla(){
+  try{
+    const wsData = [
+      ['Nombre','Categoría','Precio','Stock','Stock Mínimo'],
+      ['Cuaderno cuadriculado 100 hojas','Útiles escolares',6.5,40,10],
+      ['Témperas x6 colores','Arte y manualidades',12.5,15,5]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+    XLSX.writeFile(wb, 'plantilla_productos_PN_Group.xlsx');
+  }catch(e){ toast('No se pudo generar la plantilla'); }
+}
+
+function handleBulkFile(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+      if(rows.length===0){ toast('El archivo no tiene filas de datos'); return; }
+      procesarFilasBulk(rows);
+    }catch(err){
+      toast('No se pudo leer el archivo. Verifica que sea un Excel o CSV válido.');
+    }
+  };
+  reader.onerror = () => toast('Error al leer el archivo');
+  reader.readAsArrayBuffer(file);
+}
+
+function getCampo(row, aliases){
+  for(const key in row){
+    if(aliases.includes(key.toString().trim().toLowerCase())) return row[key];
+  }
+  return undefined;
+}
+
+function procesarFilasBulk(rows){
+  const aliasNombre=['nombre','producto','nombre del producto'];
+  const aliasCat=['categoría','categoria'];
+  const aliasPrecio=['precio','precio (s/)','precio s/'];
+  const aliasStock=['stock','stock actual','cantidad'];
+  const aliasStockMin=['stock mínimo','stock minimo','stock min','stockmin'];
+
+  state.bulkPreview = rows.map(row=>{
+    const nombre = (getCampo(row, aliasNombre)||'').toString().trim();
+    const categoria = (getCampo(row, aliasCat)||'').toString().trim();
+    const precio = parseFloat(getCampo(row, aliasPrecio));
+    const stock = parseInt(getCampo(row, aliasStock));
+    let stockMin = parseInt(getCampo(row, aliasStockMin));
+    if(isNaN(stockMin)) stockMin = 3;
+    let error = null;
+    if(!nombre) error='Falta nombre';
+    else if(!categoria) error='Falta categoría';
+    else if(isNaN(precio) || precio<0) error='Precio inválido';
+    else if(isNaN(stock) || stock<0) error='Stock inválido';
+    const existe = state.products.some(p=>p.nombre.toLowerCase()===nombre.toLowerCase());
+    return { nombre, categoria, precio, stock, stockMin, error, accion: error ? null : (existe?'actualizar':'nuevo') };
+  });
+  renderBulkPreview();
+}
+
+function renderBulkPreview(){
+  const area = document.getElementById('bulkPreviewArea');
+  const nuevos = state.bulkPreview.filter(r=>r.accion==='nuevo').length;
+  const actualizados = state.bulkPreview.filter(r=>r.accion==='actualizar').length;
+  const errores = state.bulkPreview.filter(r=>r.error).length;
+  area.innerHTML = `
+    <div style="display:flex; gap:8px; margin:10px 0; flex-wrap:wrap">
+      <span class="pill">${nuevos} nuevos</span>
+      <span class="pill" style="background:var(--blue-soft); color:var(--blue)">${actualizados} a actualizar</span>
+      ${errores ? `<span class="stamp-badge st-bajo">${errores} con error</span>` : ''}
+    </div>
+    <div style="max-height:220px; overflow:auto; border:1px solid var(--paper-line); border-radius:6px">
+      <table>
+        <thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th></tr></thead>
+        <tbody>
+        ${state.bulkPreview.map(r=>`<tr>
+          <td>${r.nombre||'—'}</td>
+          <td>${r.categoria||'—'}</td>
+          <td class="price">${isNaN(r.precio)?'—':fmt(r.precio)}</td>
+          <td class="mono">${isNaN(r.stock)?'—':r.stock}</td>
+          <td>${r.error ? `<span style="color:var(--stamp); font-size:12px">${r.error}</span>` : (r.accion==='nuevo' ? '<span style="color:var(--forest); font-size:12px">Nuevo</span>' : '<span style="color:var(--blue); font-size:12px">Actualizar</span>')}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  const validos = state.bulkPreview.filter(r=>!r.error).length;
+  const confirmBtn = document.getElementById('bulkConfirmBtn');
+  confirmBtn.style.display = validos>0 ? 'inline-block' : 'none';
+  confirmBtn.textContent = `Confirmar importación (${validos})`;
+}
+
+async function confirmBulkImport(){
+  const categoriasSet = new Set(state.categories);
+  state.bulkPreview.filter(r=>!r.error).forEach(r=>{
+    categoriasSet.add(r.categoria);
+    const existente = state.products.find(p=>p.nombre.toLowerCase()===r.nombre.toLowerCase());
+    if(existente){
+      Object.assign(existente, { categoria:r.categoria, precio:r.precio, stock:r.stock, stockMin:r.stockMin });
+    } else {
+      state.products.push({ id:nextId('p', state.products), nombre:r.nombre, categoria:r.categoria, precio:r.precio, stock:r.stock, stockMin:r.stockMin, foto:'' });
+    }
+  });
+  state.categories = Array.from(categoriasSet);
+  await Promise.all([storageSet('products', state.products), storageSet('categories', state.categories)]);
+  toast('Productos importados correctamente');
+  closeBulkModal();
+  render();
+}
+
+function handlePhotoSelect(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(file.size > 150*1024){ toast('La imagen es muy pesada, usa una menor a 150KB (Firestore tiene un límite de 1MB por documento y varias fotos comparten el mismo)'); input.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('f-foto-data').value = reader.result;
+    const preview = document.getElementById('photoPreview');
+    const img = document.createElement('img');
+    img.id = 'photoPreview'; img.className = 'photo-preview'; img.src = reader.result;
+    preview.replaceWith(img);
+  };
+  reader.onerror = () => toast('No se pudo leer la imagen');
+  reader.readAsDataURL(file);
+}
+
+async function saveProduct(id){
+  const nombre = document.getElementById('f-nombre').value.trim();
+  const categoria = document.getElementById('f-categoria').value;
+  const precio = parseFloat(document.getElementById('f-precio').value);
+  const stock = parseInt(document.getElementById('f-stock').value);
+  const stockMin = parseInt(document.getElementById('f-stockmin').value);
+  const foto = document.getElementById('f-foto-data').value;
+  if(!nombre || isNaN(precio) || isNaN(stock) || isNaN(stockMin)){ toast('Completa todos los campos correctamente'); return; }
+  if(id){
+    const p = productById(id);
+    Object.assign(p, {nombre, categoria, precio, stock, stockMin, foto});
+  } else {
+    state.products.push({ id:nextId('p', state.products), nombre, categoria, precio, stock, stockMin, foto });
+  }
+  await storageSet('products', state.products);
+  closeModal(); toast('Producto guardado'); render();
+}
+async function deleteProduct(id){
+  state.products = state.products.filter(p=>p.id!==id);
+  await storageSet('products', state.products);
+  toast('Producto eliminado'); render();
+}
+
+function renderAdminCategorias(){
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Categorías de productos</h3>
+        <div style="display:flex; gap:6px">
+          <input id="newCatInput" placeholder="Nueva categoría" style="width:180px">
+          <button class="btn btn-primary btn-sm" onclick="addCategory()">Agregar</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Categoría</th><th>Productos</th><th></th></tr></thead>
+        <tbody>
+        ${state.categories.map(c=>{
+          const count = state.products.filter(p=>p.categoria===c).length;
+          return `<tr><td>${c}</td><td class="mono">${count}</td><td><button class="btn btn-danger btn-sm" onclick="deleteCategory('${c}')">Eliminar</button></td></tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+async function addCategory(){
+  const input = document.getElementById('newCatInput');
+  const val = input.value.trim();
+  if(!val){ toast('Escribe un nombre de categoría'); return; }
+  if(state.categories.includes(val)){ toast('Esa categoría ya existe'); return; }
+  state.categories.push(val);
+  await storageSet('categories', state.categories);
+  toast('Categoría agregada'); render();
+}
+async function deleteCategory(c){
+  if(state.products.some(p=>p.categoria===c)){ toast('No se puede eliminar: hay productos en esta categoría'); return; }
+  state.categories = state.categories.filter(x=>x!==c);
+  await storageSet('categories', state.categories);
+  toast('Categoría eliminada'); render();
+}
+
+function renderAdminPedidos(){
+  const orders = [...state.orders].sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  return `
+    <div class="panel">
+      <div class="panel-head"><h3>Todos los pedidos</h3></div>
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Tipo</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+        ${orders.map(o=>`
+          <tr>
+            <td class="mono">${o.id}</td>
+            <td>${o.cliente}</td>
+            <td>${o.tipoEntrega==='delivery'?'Delivery':'Recojo en tienda'}</td>
+            <td class="price">${fmt(o.total)}</td>
+            <td><span class="stamp-badge ${stampClass(o.estado)}">${o.estado}</span></td>
+            <td>${o.estado!=='Entregado' ? `<button class="btn btn-outline btn-sm" onclick="avanzarEstado('${o.id}')">Avanzar estado →</button>` : ''}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${orders.length===0?'<div class="empty">No hay pedidos registrados todavía.</div>':''}
+    </div>
+  `;
+}
+async function avanzarEstado(id){
+  const o = state.orders.find(x=>x.id===id);
+  const seq = estadosPara(o.tipoEntrega);
+  const idx = seq.indexOf(o.estado);
+  if(idx < seq.length-1) o.estado = seq[idx+1];
+  if(o.estado==='En camino' && !o.horaSalida) o.horaSalida = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
+  if(o.estado==='Entregado' && !o.horaEntrega) o.horaEntrega = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
+  await storageSet('orders', state.orders);
+  toast(`Pedido ${id}: ${o.estado}`); render();
+}
+
+/* ================= CLIENTE ================= */
+function renderCliente(){
+  const tabs = [
+    {k:'catalogo', label:'Catálogo'},
+    {k:'carrito', label:`Carrito (${state.cart.reduce((s,c)=>s+c.cantidad,0)})`},
+    {k:'pedidos', label:'Mis pedidos'}
+  ];
+  const nav = `<div class="subnav">${tabs.map(t=>`<button class="${state.clienteTab===t.k?'active':''}" onclick="setClienteTab('${t.k}')">${t.label}</button>`).join('')}</div>`;
+  let body='';
+  if(state.clienteTab==='catalogo') body = renderCatalogo();
+  else if(state.clienteTab==='carrito') body = renderCarrito();
+  else body = renderMisPedidos();
+  return nav + body;
+}
+function setClienteTab(t){ state.clienteTab=t; render(); }
+
+function renderCatalogo(){
+  const cats = ['Todas', ...state.categories];
+  const filtered = state.catFilter==='Todas' ? state.products : state.products.filter(p=>p.categoria===state.catFilter);
+  return `
+    <div class="cat-filter">
+      ${cats.map(c=>`<button class="cat-chip ${state.catFilter===c?'active':''}" onclick="setCatFilter('${c}')">${c}</button>`).join('')}
+    </div>
+    <div class="grid cards-4">
+      ${filtered.map(p=>`
+        <div class="product-card">
+          ${p.foto ? `<img class="thumb" src="${p.foto}" alt="${p.nombre}">` : ''}
+          <div class="cat-tag">${p.categoria}</div>
+          <h4>${p.nombre}</h4>
+          <div class="price">${fmt(p.precio)}</div>
+          <div style="font-size:12px; color:var(--ink-soft)">${p.stock>0 ? p.stock+' disponibles' : 'Sin stock'}</div>
+          <div class="row-bottom">
+            <button class="btn btn-primary btn-sm" ${p.stock<=0?'disabled':''} onclick="addToCart('${p.id}')">Agregar</button>
+          </div>
+        </div>`).join('')}
+    </div>
+    ${filtered.length===0?'<div class="empty">No hay productos en esta categoría.</div>':''}
+  `;
+}
+function setCatFilter(c){ state.catFilter=c; render(); }
+function addToCart(id){
+  const p = productById(id);
+  const line = state.cart.find(c=>c.productId===id);
+  const enCarrito = line?line.cantidad:0;
+  if(enCarrito+1 > p.stock){ toast('No hay más stock disponible'); return; }
+  if(line) line.cantidad++; else state.cart.push({productId:id, cantidad:1});
+  toast(`${p.nombre} agregado al carrito`); render();
+}
+
+function renderCarrito(){
+  if(state.cart.length===0){
+    return `<div class="panel"><div class="empty">Tu carrito está vacío. Ve al catálogo para agregar productos.</div></div>`;
+  }
+  const total = state.cart.reduce((s,c)=>s + c.cantidad*productById(c.productId).precio, 0);
+  return `
+    <div class="panel">
+      <h3>Tu carrito</h3>
+      ${state.cart.map(c=>{
+        const p = productById(c.productId);
+        return `<div class="cart-line">
+          <div>${p.nombre}<div style="font-size:12px;color:var(--ink-soft)">${fmt(p.precio)} c/u</div></div>
+          <div style="display:flex; align-items:center; gap:8px">
+            <input type="number" class="qty-input" min="1" max="${p.stock}" value="${c.cantidad}" onchange="updateQty('${c.productId}', this.value)">
+            <button class="btn btn-danger btn-sm" onclick="removeFromCart('${c.productId}')">Quitar</button>
+          </div>
+        </div>`;
+      }).join('')}
+      <div style="display:flex; justify-content:flex-end; padding-top:12px; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px">Total: ${fmt(total)}</div>
+    </div>
+    <div class="panel">
+      <h3>Datos de entrega</h3>
+      <div class="form-row">
+        <div class="field"><label>Nombre completo</label><input id="f-nombrecliente" placeholder="Nombres y apellidos"></div>
+        <div class="field"><label>Número de celular</label><input id="f-celular" type="tel" placeholder="9xxxxxxxx"></div>
+      </div>
+      <div class="field">
+        <label>Tipo de entrega</label>
+        <select id="f-tipoentrega" onchange="toggleDireccion()">
+          <option value="delivery">Delivery</option>
+          <option value="recojo">Recojo en tienda</option>
+        </select>
+      </div>
+      <div id="direccionField">
+        <div class="field">
+          <label>Dirección de entrega</label>
+          <input id="f-direccion" placeholder="Ej. Av. Ejemplo 123, distrito">
+        </div>
+        <div class="field">
+          <label>Ubicación GPS</label>
+          <div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="solicitarUbicacion()">📍 Compartir mi ubicación</button>
+          </div>
+          <div id="ubicacionStatus" style="font-size:12px; margin-top:6px; color:var(--ink-soft)">Así el repartidor llega directo a tu casa.</div>
+          <input type="hidden" id="f-lat"><input type="hidden" id="f-lng">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="confirmarPedido()">Confirmar pedido</button>
+    </div>
+  `;
+}
+function toggleDireccion(){
+  const tipo = document.getElementById('f-tipoentrega').value;
+  document.getElementById('direccionField').style.display = tipo==='delivery' ? 'block':'none';
+}
+function solicitarUbicacion(){
+  const status = document.getElementById('ubicacionStatus');
+  if(!navigator.geolocation){
+    status.textContent = 'Tu navegador no permite compartir ubicación. Escribe la dirección con el mayor detalle posible.';
+    status.style.color = 'var(--stamp)';
+    return;
+  }
+  status.textContent = 'Obteniendo tu ubicación…';
+  status.style.color = 'var(--ink-soft)';
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.getElementById('f-lat').value = pos.coords.latitude;
+      document.getElementById('f-lng').value = pos.coords.longitude;
+      status.textContent = '✓ Ubicación capturada. El repartidor podrá ubicarte fácilmente.';
+      status.style.color = 'var(--forest)';
+    },
+    err => {
+      status.textContent = 'No pudimos acceder a tu ubicación (revisa los permisos del navegador). Puedes continuar solo con la dirección escrita.';
+      status.style.color = 'var(--stamp)';
+    },
+    { enableHighAccuracy:true, timeout:10000 }
+  );
+}
+async function updateQty(id, val){
+  const p = productById(id);
+  let qty = parseInt(val)||1;
+  if(qty > p.stock){ qty = p.stock; toast('Cantidad ajustada al stock disponible'); }
+  if(qty < 1) qty = 1;
+  state.cart.find(c=>c.productId===id).cantidad = qty;
+  render();
+}
+function removeFromCart(id){ state.cart = state.cart.filter(c=>c.productId!==id); render(); }
+
+async function confirmarPedido(){
+  const nombreCliente = document.getElementById('f-nombrecliente').value.trim();
+  const celular = document.getElementById('f-celular').value.trim();
+  const tipo = document.getElementById('f-tipoentrega').value;
+  const direccion = tipo==='delivery' ? document.getElementById('f-direccion').value.trim() : '';
+  if(!nombreCliente){ toast('Ingresa tu nombre completo'); return; }
+  if(!celular || celular.length < 6){ toast('Ingresa un número de celular válido'); return; }
+  if(tipo==='delivery' && !direccion){ toast('Ingresa una dirección de entrega'); return; }
+  const lat = document.getElementById('f-lat').value;
+  const lng = document.getElementById('f-lng').value;
+  if(tipo==='delivery' && (!lat || !lng)){ toast('Comparte tu ubicación para que el repartidor pueda llegar a tu casa'); return; }
+  for(const c of state.cart){
+    const p = productById(c.productId);
+    if(c.cantidad > p.stock){ toast(`Sin stock suficiente de ${p.nombre}`); return; }
+  }
+  const items = state.cart.map(c=>({productId:c.productId, cantidad:c.cantidad, precio:productById(c.productId).precio}));
+  const total = items.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const order = {
+    id: nextId('o', state.orders),
+    cliente: nombreCliente,
+    telefono: celular,
+    tipoEntrega: tipo,
+    direccion,
+    ubicacion: (tipo==='delivery' && lat && lng) ? { lat:parseFloat(lat), lng:parseFloat(lng) } : null,
+    items,
+    total,
+    estado: 'Pendiente',
+    fecha: new Date().toISOString().slice(0,10)
+  };
+  state.orders.push(order);
+  state.misPedidosIds.push(order.id);
+  items.forEach(i=>{ productById(i.productId).stock -= i.cantidad; });
+  state.cart = [];
+  await Promise.all([storageSet('orders', state.orders), storageSet('products', state.products)]);
+  toast('¡Pedido confirmado!'); state.clienteTab='pedidos'; render();
+}
+
+function renderMisPedidos(){
+  const mine = state.orders.filter(o=>state.misPedidosIds.includes(o.id)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  return `
+    <div class="panel">
+      <h3>Mis pedidos</h3>
+      ${mine.length===0 ? '<div class="empty">Todavía no has hecho pedidos en esta sesión.</div>' : `
+      <table>
+        <thead><tr><th>Pedido</th><th>Fecha</th><th>Tipo</th><th>Total</th><th>Estado</th></tr></thead>
+        <tbody>
+        ${mine.map(o=>`<tr>
+          <td class="mono">${o.id}</td>
+          <td>${o.fecha}</td>
+          <td>${o.tipoEntrega==='delivery'?'Delivery':'Recojo en tienda'}</td>
+          <td class="price">${fmt(o.total)}</td>
+          <td><span class="stamp-badge ${stampClass(o.estado)}">${o.estado}</span></td>
+        </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+}
+
+/* ================= REPARTIDOR ================= */
+function renderRepartidor(){
+  const pendientes = state.orders.filter(o=>o.tipoEntrega==='delivery' && o.estado==='Pendiente');
+  const enCamino = state.orders.filter(o=>o.tipoEntrega==='delivery' && o.estado==='En camino');
+  const entregadosHoy = state.orders.filter(o=>o.tipoEntrega==='delivery' && o.estado==='Entregado');
+  const clienteInfo = (o) => `
+    <div class="mono" style="font-weight:600">${o.id} — ${o.cliente}</div>
+    <div style="font-size:13px; color:var(--ink-soft); margin:2px 0">${o.direccion}</div>
+    <div style="font-size:12px">Cel: ${o.telefono || '—'}</div>
+    <div style="font-size:12px">${o.items.map(i=>productById(i.productId)?.nombre+' x'+i.cantidad).join(', ')}</div>
+    <div class="price" style="margin-top:4px">${fmt(o.total)}</div>
+  `;
+  return `
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px">
+      <button class="btn btn-outline btn-sm" onclick="logout('repartidor')">Cerrar sesión</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>Pedidos pendientes</h3><span class="stamp-badge st-pendiente">${pendientes.length} por iniciar</span></div>
+      ${pendientes.length===0 ? '<div class="empty">No hay pedidos pendientes de reparto por ahora.</div>' : pendientes.map(o=>`
+        <div class="cart-line" style="align-items:flex-start">
+          <div>${clienteInfo(o)}</div>
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end">
+            ${o.ubicacion ? `<a class="btn btn-outline btn-sm" href="https://www.google.com/maps?q=${o.ubicacion.lat},${o.ubicacion.lng}" target="_blank" rel="noopener">📍 Ver ubicación</a>` : '<span style="font-size:11px; color:var(--ink-soft)">Sin GPS, usar dirección</span>'}
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; cursor:pointer">
+              <input type="checkbox" onclick="if(this.checked) iniciarReparto('${o.id}'); else this.checked=true;">
+              Pendiente → Iniciar reparto
+            </label>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>En camino</h3><span class="stamp-badge st-camino">${enCamino.length} en ruta</span></div>
+      ${enCamino.length===0 ? '<div class="empty">No hay pedidos en camino asignados por ahora.</div>' : enCamino.map(o=>`
+        <div class="cart-line" style="align-items:flex-start">
+          <div>
+            ${clienteInfo(o)}
+            ${o.horaSalida ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:3px">Salida: ${o.horaSalida}</div>` : ''}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
+            ${o.ubicacion ? `<a class="btn btn-outline btn-sm" href="https://www.google.com/maps?q=${o.ubicacion.lat},${o.ubicacion.lng}" target="_blank" rel="noopener">📍 Ver ubicación</a>` : ''}
+            <button class="btn btn-primary btn-sm" onclick="marcarEntregado('${o.id}')">Marcar como entregado</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="panel">
+      <h3>Entregados</h3>
+      ${entregadosHoy.length===0 ? '<div class="empty">Aún no hay entregas completadas.</div>' : `
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Dirección</th><th>Salida</th><th>Entrega</th><th>Total</th></tr></thead>
+        <tbody>
+        ${entregadosHoy.map(o=>`<tr><td class="mono">${o.id}</td><td>${o.cliente}</td><td>${o.direccion}</td><td>${o.horaSalida||'—'}</td><td>${o.horaEntrega||'—'}</td><td class="price">${fmt(o.total)}</td></tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+}
+async function iniciarReparto(id){
+  const o = state.orders.find(x=>x.id===id);
+  o.estado = 'En camino';
+  o.horaSalida = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
+  await storageSet('orders', state.orders);
+  toast(`Reparto iniciado — salida registrada a las ${o.horaSalida}`);
+  render();
+}
+async function marcarEntregado(id){
+  const o = state.orders.find(x=>x.id===id);
+  o.estado = 'Entregado';
+  o.horaEntrega = new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'});
+  await storageSet('orders', state.orders);
+  toast(`Pedido ${id} entregado`); render();
+}
+
+/* ---------- Init ---------- */
+loadData();
+</script>
+</body>
+</html>
