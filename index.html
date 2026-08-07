@@ -243,6 +243,7 @@
     </div>
     <div class="role-tabs" id="roleTabs"></div>
   </div>
+  <p id="estadoConexion" style="font-size:12px; font-weight:600; margin:-6px 0 14px">🟡 Verificando conexión…</p>
 
   <div id="content"></div>
 
@@ -261,13 +262,45 @@ const firebaseConfig = {
   appId: "1:1005773980688:web:0b6cccd7f42e9eba293695"
 };
 let db = null;
+let dbInitError = null;
 try{
   if(typeof firebase === 'undefined') throw new Error('El SDK de Firebase no se cargó');
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   db.settings({ experimentalForceLongPolling: true, experimentalAutoDetectLongPolling: false, useFetchStreams: false, merge: true });
 }catch(e){
+  dbInitError = e.message;
   console.error('No se pudo inicializar la conexión a la base de datos', e);
+}
+
+/* Estado de conexión visible en pantalla, para no depender de la consola.
+   'verificando' -> 'conectado' (una escritura de prueba llegó al servidor)
+   'sin_conexion' -> la escritura de prueba nunca llegó (se colgó o falló) */
+let estadoConexion = db ? 'verificando' : 'error_inicio';
+function conTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, reject)=> setTimeout(()=> reject(new Error('tiempo agotado')), ms))
+  ]);
+}
+function verificarConexion(){
+  if(!db){ estadoConexion = 'error_inicio'; renderEstadoConexion(); return; }
+  conTimeout(db.collection('_diagnostico').doc('ping').set({ hora: Date.now() }), 8000)
+    .then(()=>{ estadoConexion = 'conectado'; renderEstadoConexion(); })
+    .catch(e=>{ estadoConexion = 'sin_conexion'; console.error('Diagnóstico de conexión falló', e); renderEstadoConexion(); });
+}
+function renderEstadoConexion(){
+  const el = document.getElementById('estadoConexion');
+  if(!el) return;
+  const mapa = {
+    verificando: { texto:'🟡 Verificando conexión…', color:'var(--ink-soft)' },
+    conectado: { texto:'🟢 Conectado a la base de datos', color:'var(--forest)' },
+    sin_conexion: { texto:'🔴 Sin conexión a la base de datos — los cambios NO se están guardando', color:'var(--stamp)' },
+    error_inicio: { texto:'🔴 No se pudo iniciar la conexión — los cambios NO se están guardando', color:'var(--stamp)' }
+  };
+  const info = mapa[estadoConexion];
+  el.textContent = info.texto;
+  el.style.color = info.color;
 }
 
 /* ---------- Notificación por correo (EmailJS) ---------- */
@@ -325,9 +358,13 @@ const COL_PEDIDOS = 'pedidos';
 
 function guardarProducto(p){
   if(!db) return;
-  db.collection(COL_PRODUCTOS).doc(p.id).set(p)
-    .then(()=>console.log('✓ Producto guardado en la nube:', p.id))
-    .catch(e=>{ console.error(e); toast('No se pudo guardar el producto en la base de datos'); });
+  conTimeout(db.collection(COL_PRODUCTOS).doc(p.id).set(p), 10000)
+    .then(()=>{ console.log('✓ Producto guardado en la nube:', p.id); estadoConexion='conectado'; renderEstadoConexion(); })
+    .catch(e=>{
+      console.error(e);
+      estadoConexion='sin_conexion'; renderEstadoConexion();
+      toast('⚠️ El producto no se pudo guardar en la nube (conexión bloqueada). Se ve en tu pantalla pero no en otros dispositivos.');
+    });
 }
 function eliminarProductoDB(id){
   if(!db) return;
@@ -379,8 +416,10 @@ function loadData(){
   state.orders = seed.orders;
   state.loading = false;
   render();
+  renderEstadoConexion();
   showWelcome();
   activarSincronizacionEnVivo(seed);
+  verificarConexion();
 }
 
 /* Escucha cambios en tiempo real en cada colección. Cada documento sembrado
