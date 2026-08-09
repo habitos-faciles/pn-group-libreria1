@@ -367,6 +367,8 @@ let state = {
   searchQuery: '',
   cupones: [],
   cuponAplicado: null,
+  clientesImportados: [],
+  bulkClientesPreview: [],
   mensajeNovedades: 'Hola {nombre}, somos PN Group Librería. Te escribimos porque nos llegaron Manuales sobre Salud y familia que te podrían interesar, siendo que ya eres considerado(a) como nuestro cliente. Entra a nuestra tienda virtual y por este mes llévate un Descuento de 10%: https://habitos-faciles.github.io/pn-group-libreria1/ En la opción de Carrito escribe el Código SALUD10 y APLICA el descuento de este mes. ¡Saludos!',
   loading: true
 };
@@ -386,6 +388,7 @@ const COL_PRODUCTOS = 'productos';
 const COL_CATEGORIAS = 'categorias';
 const COL_PEDIDOS = 'pedidos';
 const COL_CUPONES = 'cupones';
+const COL_CLIENTES = 'clientes';
 
 function guardarProducto(p){
   if(!db) return;
@@ -426,6 +429,16 @@ function eliminarCuponDB(codigo){
   if(!db) return;
   db.collection(COL_CUPONES).doc(codigo).delete()
     .catch(e=>{ console.error(e); toast('No se pudo eliminar el cupón de la base de datos'); });
+}
+function guardarClienteDB(c){
+  if(!db) return;
+  db.collection(COL_CLIENTES).doc(c.telefono).set(c)
+    .catch(e=>{ console.error(e); toast('No se pudo guardar el cliente en la base de datos'); });
+}
+function eliminarClienteDB(telefono){
+  if(!db) return;
+  db.collection(COL_CLIENTES).doc(telefono).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar el cliente de la base de datos'); });
 }
 
 function seedData(){
@@ -511,6 +524,11 @@ function activarSincronizacionEnVivo(seed){
       render();
     }
   }, err=>console.error('Sincronización cupones', err));
+
+  db.collection(COL_CLIENTES).onSnapshot(snap=>{
+    state.clientesImportados = snap.docs.map(d=>d.data());
+    render();
+  }, err=>console.error('Sincronización clientes', err));
 }
 
 function showWelcome(){
@@ -1025,14 +1043,29 @@ function clientesQueCompraronLibros(){
       if(o.correo) existente.correo = o.correo;
       if(o.fecha > existente.fecha){ existente.cliente = o.cliente; existente.fecha = o.fecha; }
     } else {
-      mapa.set(o.telefono, { cliente:o.cliente, telefono:o.telefono, correo:o.correo||'', pedidosLibros:1, fecha:o.fecha });
+      mapa.set(o.telefono, { cliente:o.cliente, telefono:o.telefono, correo:o.correo||'', pedidosLibros:1, fecha:o.fecha, origen:'Pedido' });
     }
   });
-  return Array.from(mapa.values()).sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  return Array.from(mapa.values());
+}
+
+function baseDeClientes(){
+  const mapa = new Map();
+  clientesQueCompraronLibros().forEach(c=> mapa.set(c.telefono, c));
+  state.clientesImportados.forEach(c=>{
+    if(mapa.has(c.telefono)){
+      const existente = mapa.get(c.telefono);
+      if(!existente.correo && c.correo) existente.correo = c.correo;
+      existente.origen = existente.origen === 'Pedido' ? 'Pedido + Importado' : existente.origen;
+    } else {
+      mapa.set(c.telefono, { cliente:c.nombre, telefono:c.telefono, correo:c.correo||'', pedidosLibros:0, fecha:c.fecha||'', origen:'Importado' });
+    }
+  });
+  return Array.from(mapa.values()).sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
 }
 
 function renderAdminClientes(){
-  const clientes = clientesQueCompraronLibros();
+  const clientes = baseDeClientes();
   const conCorreo = clientes.filter(c=>c.correo);
   return `
     <div class="panel">
@@ -1056,8 +1089,15 @@ function renderAdminClientes(){
       ${state.cupones.length===0 ? '<div class="empty">No hay cupones creados todavía.</div>' : ''}
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Clientes que compraron libros</h3><span class="pill">${clientes.length} cliente${clientes.length===1?'':'s'}</span></div>
-      <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 14px">Escribe el mensaje de novedades una vez, y usa los botones de cada cliente para enviarlo — así revisas cada envío antes de mandarlo (WhatsApp y correo no permiten automatizar el envío masivo sin herramientas de pago).</p>
+      <div class="panel-head">
+        <h3>Base de datos de clientes</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <span class="pill">${clientes.length} cliente${clientes.length===1?'':'s'}</span>
+          <button class="btn btn-outline btn-sm" onclick="descargarPlantillaClientes()">⬇ Descargar plantilla</button>
+          <button class="btn btn-primary btn-sm" onclick="openBulkClientesModal()">📤 Cargar clientes (Excel)</button>
+        </div>
+      </div>
+      <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 14px">Aquí aparecen tanto los clientes que ya te compraron por la tienda como los que importes desde tu lista anterior (Excel). Escribe el mensaje de novedades una vez, y usa los botones de cada cliente para enviarlo — así revisas cada envío antes de mandarlo (WhatsApp y correo no permiten automatizar el envío masivo sin herramientas de pago).</p>
       <div class="field">
         <label>Mensaje de novedades (usa {nombre} para saludar a cada cliente por su nombre)</label>
         <textarea id="mensajeNovedades" rows="4" oninput="state.mensajeNovedades=this.value" style="width:100%; padding:10px; border:1.5px solid var(--paper-line); border-radius:6px; font-family:'Public Sans'; font-size:13.5px">${state.mensajeNovedades}</textarea>
@@ -1066,14 +1106,14 @@ function renderAdminClientes(){
     </div>
     <div class="panel">
       <table>
-        <thead><tr><th>Cliente</th><th>Celular</th><th>Correo</th><th>Pedidos con libros</th><th></th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Celular</th><th>Correo</th><th>Origen</th><th></th></tr></thead>
         <tbody>
         ${clientes.map(c=>`
           <tr>
             <td>${c.cliente}</td>
             <td class="mono">${c.telefono}</td>
             <td>${c.correo || '<span style="color:var(--ink-soft)">— sin correo —</span>'}</td>
-            <td class="mono">${c.pedidosLibros}</td>
+            <td><span class="pill">${c.origen}${c.pedidosLibros>0 ? ' · '+c.pedidosLibros+' pedido(s)' : ''}</span></td>
             <td style="white-space:nowrap; display:flex; gap:6px">
               <button class="btn btn-outline btn-sm" onclick="abrirWhatsAppCliente('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">📱 WhatsApp</button>
               ${c.correo ? `<button class="btn btn-outline btn-sm" onclick="abrirCorreoCliente('${c.correo}','${c.cliente.replace(/'/g,"\\'")}')">📧 Correo</button>` : ''}
@@ -1081,10 +1121,130 @@ function renderAdminClientes(){
           </tr>`).join('')}
         </tbody>
       </table>
-      ${clientes.length===0 ? '<div class="empty">Todavía no hay clientes que hayan comprado libros.</div>' : ''}
+      ${clientes.length===0 ? '<div class="empty">Todavía no hay clientes registrados. Importa tu lista o espera el primer pedido.</div>' : ''}
     </div>
   `;
 }
+function openBulkClientesModal(){
+  const html = `
+    <div class="modal-backdrop" id="bulkClientesModal" onclick="if(event.target===this) closeBulkClientesModal()">
+      <div class="modal" style="max-width:580px">
+        <h3>Carga masiva de clientes</h3>
+        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px; line-height:1.5">
+          Sube un archivo Excel (.xlsx) o CSV con las columnas <strong>Nombre, Celular, Correo</strong> (el correo es opcional). Si un celular ya está registrado, se actualizará su nombre/correo en vez de duplicarse.
+        </p>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap">
+          <button type="button" class="btn btn-outline btn-sm" onclick="descargarPlantillaClientes()">⬇ Descargar plantilla</button>
+          <input type="file" id="bulkClientesFile" accept=".xlsx,.xls,.csv" onchange="handleBulkClientesFile(this)">
+        </div>
+        <div id="bulkClientesPreviewArea"></div>
+        <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="closeBulkClientesModal()">Cancelar</button>
+          <button class="btn btn-primary" id="bulkClientesConfirmBtn" style="display:none" onclick="confirmBulkClientesImport()">Confirmar importación</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function closeBulkClientesModal(){ const m=document.getElementById('bulkClientesModal'); if(m) m.remove(); state.bulkClientesPreview=[]; }
+
+function descargarPlantillaClientes(){
+  try{
+    const wsData = [
+      ['Nombre','Celular','Correo'],
+      ['María Quispe','987654321','maria@ejemplo.com'],
+      ['Jorge Ramírez','912345678','']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+    XLSX.writeFile(wb, 'plantilla_clientes_PN_Group.xlsx');
+  }catch(e){ toast('No se pudo generar la plantilla'); }
+}
+
+function handleBulkClientesFile(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+      if(rows.length===0){ toast('El archivo no tiene filas de datos'); return; }
+      procesarFilasBulkClientes(rows);
+    }catch(err){
+      toast('No se pudo leer el archivo. Verifica que sea un Excel o CSV válido.');
+    }
+  };
+  reader.onerror = () => toast('Error al leer el archivo');
+  reader.readAsArrayBuffer(file);
+}
+
+function procesarFilasBulkClientes(rows){
+  const aliasNombre=['nombre','cliente','nombre del cliente','nombres y apellidos'];
+  const aliasCelular=['celular','teléfono','telefono','número','numero','whatsapp'];
+  const aliasCorreo=['correo','email','correo electrónico','correo electronico'];
+
+  const combinados = baseDeClientes();
+  state.bulkClientesPreview = rows.map(row=>{
+    const nombre = (getCampo(row, aliasNombre)||'').toString().trim();
+    let celular = (getCampo(row, aliasCelular)||'').toString().trim().replace(/\D/g,'');
+    const correo = (getCampo(row, aliasCorreo)||'').toString().trim();
+    let error = null;
+    if(!nombre) error='Falta nombre';
+    else if(!celular || celular.length<6) error='Celular inválido';
+    const existe = combinados.some(c=>c.telefono===celular);
+    return { nombre, telefono:celular, correo, error, accion: error ? null : (existe?'actualizar':'nuevo') };
+  });
+  renderBulkClientesPreview();
+}
+
+function renderBulkClientesPreview(){
+  const area = document.getElementById('bulkClientesPreviewArea');
+  const nuevos = state.bulkClientesPreview.filter(r=>r.accion==='nuevo').length;
+  const actualizados = state.bulkClientesPreview.filter(r=>r.accion==='actualizar').length;
+  const errores = state.bulkClientesPreview.filter(r=>r.error).length;
+  area.innerHTML = `
+    <div style="display:flex; gap:8px; margin:10px 0; flex-wrap:wrap">
+      <span class="pill">${nuevos} nuevos</span>
+      <span class="pill" style="background:var(--blue-soft); color:var(--blue)">${actualizados} a actualizar</span>
+      ${errores ? `<span class="stamp-badge st-bajo">${errores} con error</span>` : ''}
+    </div>
+    <div style="max-height:220px; overflow:auto; border:1px solid var(--paper-line); border-radius:6px">
+      <table>
+        <thead><tr><th>Nombre</th><th>Celular</th><th>Correo</th><th>Estado</th></tr></thead>
+        <tbody>
+        ${state.bulkClientesPreview.map(r=>`<tr>
+          <td>${r.nombre||'—'}</td>
+          <td class="mono">${r.telefono||'—'}</td>
+          <td>${r.correo||'—'}</td>
+          <td>${r.error ? `<span style="color:var(--stamp); font-size:12px">${r.error}</span>` : (r.accion==='nuevo' ? '<span style="color:var(--forest); font-size:12px">Nuevo</span>' : '<span style="color:var(--blue); font-size:12px">Actualizar</span>')}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  const validos = state.bulkClientesPreview.filter(r=>!r.error).length;
+  const confirmBtn = document.getElementById('bulkClientesConfirmBtn');
+  confirmBtn.style.display = validos>0 ? 'inline-block' : 'none';
+  confirmBtn.textContent = `Confirmar importación (${validos})`;
+}
+
+function confirmBulkClientesImport(){
+  const validos = state.bulkClientesPreview.filter(r=>!r.error);
+  validos.forEach(r=>{
+    const nuevo = { telefono:r.telefono, nombre:r.nombre, correo:r.correo, fecha:new Date().toISOString().slice(0,10) };
+    const existente = state.clientesImportados.find(c=>c.telefono===r.telefono);
+    if(existente) Object.assign(existente, nuevo);
+    else state.clientesImportados.push(nuevo);
+    guardarClienteDB(nuevo);
+  });
+  closeBulkClientesModal();
+  toast(`${validos.length} clientes importados correctamente`);
+  render();
+}
+
 function mensajePersonalizado(nombre){
   return (state.mensajeNovedades || '').replace(/\{nombre\}/g, nombre.split(' ')[0]);
 }
@@ -1139,7 +1299,7 @@ function abrirWhatsAppCliente(telefono, nombre){
 function abrirCorreoCliente(correo, nombre){
   const asunto = encodeURIComponent('Novedades de libros — PN Group Librería');
   const cuerpo = encodeURIComponent(mensajePersonalizado(nombre));
-  window.location.href = `mailto:${correo}?subject=${asunto}&body=${cuerpo}`;
+  window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(correo)}&su=${asunto}&body=${cuerpo}`, '_blank');
 }
 function copiarCorreosClientes(){
   const correos = clientesQueCompraronLibros().filter(c=>c.correo).map(c=>c.correo).join(', ');
