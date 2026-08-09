@@ -47,6 +47,12 @@
   .bg-illustration{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
   .bg-illustration svg{ position:absolute; right:-40px; bottom:-30px; width:620px; height:620px; opacity:.08; }
   @media(max-width:760px){ .bg-illustration svg{ width:420px; height:420px; right:-60px; bottom:-20px; } }
+  .bg-catalogo{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+  .bg-catalogo svg{ position:absolute; opacity:.07; }
+  .bg-catalogo .oficina{ left:-30px; top:60px; width:260px; }
+  .bg-catalogo .cocina{ left:calc(50% - 130px); bottom:-20px; width:260px; }
+  .bg-catalogo .familia{ right:-30px; top:80px; width:280px; }
+  @media(max-width:900px){ .bg-catalogo .oficina, .bg-catalogo .familia{ display:none; } .bg-catalogo .cocina{ left:calc(50% - 110px); width:220px; } }
 
   /* Header */
   .masthead{
@@ -994,7 +1000,46 @@ function renderCatalogo(){
   const q = state.searchQuery.trim().toLowerCase();
   let filtered = state.catFilter==='Todas' ? state.products : state.products.filter(p=>p.categoria===state.catFilter);
   if(q) filtered = filtered.filter(p=> p.nombre.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q));
-  return `
+  const fondoCatalogo = `
+    <div class="bg-catalogo" aria-hidden="true">
+      <svg class="oficina" viewBox="0 0 260 260" xmlns="http://www.w3.org/2000/svg">
+        <rect x="30" y="150" width="150" height="10" rx="3" fill="#16233F"/>
+        <rect x="45" y="160" width="10" height="60" fill="#16233F"/>
+        <rect x="155" y="160" width="10" height="60" fill="#16233F"/>
+        <rect x="60" y="95" width="90" height="60" rx="4" fill="none" stroke="#16233F" stroke-width="3"/>
+        <rect x="68" y="103" width="74" height="44" fill="#B4903F"/>
+        <rect x="95" y="155" width="20" height="14" fill="#16233F"/>
+        <circle cx="105" cy="205" r="22" fill="#16233F"/>
+        <path d="M75 260 Q75 225 105 225 Q135 225 135 260 Z" fill="#16233F"/>
+        <rect x="170" y="175" width="26" height="34" rx="10" fill="#B4903F"/>
+        <rect x="200" y="120" width="8" height="130" fill="#16233F"/>
+        <rect x="196" y="110" width="16" height="14" rx="3" fill="#B4903F"/>
+      </svg>
+      <svg class="cocina" viewBox="0 0 260 220" xmlns="http://www.w3.org/2000/svg">
+        <rect x="40" y="140" width="180" height="14" rx="4" fill="#16233F"/>
+        <rect x="55" y="154" width="12" height="50" fill="#16233F"/>
+        <rect x="193" y="154" width="12" height="50" fill="#16233F"/>
+        <circle cx="90" cy="128" r="16" fill="none" stroke="#16233F" stroke-width="4"/>
+        <circle cx="150" cy="128" r="16" fill="none" stroke="#16233F" stroke-width="4"/>
+        <ellipse cx="90" cy="118" rx="20" ry="9" fill="#B4903F"/>
+        <rect x="80" y="105" width="4" height="16" fill="#B4903F"/>
+        <circle cx="112" cy="60" r="20" fill="#16233F"/>
+        <path d="M80 145 Q80 95 112 95 Q144 95 144 145 Z" fill="#16233F"/>
+        <path d="M92 145 L92 165 M132 145 L132 165" stroke="#B4903F" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+      <svg class="familia" viewBox="0 0 280 240" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="70" cy="55" r="20" fill="#16233F"/>
+        <path d="M40 145 Q40 95 70 95 Q100 95 100 145 Z" fill="#16233F"/>
+        <circle cx="150" cy="50" r="20" fill="#B4903F"/>
+        <path d="M120 140 Q120 90 150 90 Q180 90 180 140 Z" fill="#B4903F"/>
+        <circle cx="115" cy="105" r="13" fill="#16233F"/>
+        <path d="M95 165 Q95 128 115 128 Q135 128 135 165 Z" fill="#16233F"/>
+        <circle cx="195" cy="110" r="12" fill="#B4903F"/>
+        <path d="M177 165 Q177 132 195 132 Q213 132 213 165 Z" fill="#B4903F"/>
+        <path d="M20 175 Q140 220 260 175" fill="none" stroke="#16233F" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
+      </svg>
+    </div>`;
+  return fondoCatalogo + `
     <div class="field" style="max-width:420px; margin-bottom:14px">
       <div style="position:relative">
         <input id="searchInput" type="text" placeholder="🔎 Buscar producto por nombre…" value="${state.searchQuery.replace(/"/g,'&quot;')}"
