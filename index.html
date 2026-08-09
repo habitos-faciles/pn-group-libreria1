@@ -365,7 +365,9 @@ let state = {
   cart: [], // {productId, cantidad}
   catFilter: 'Todas',
   searchQuery: '',
-  mensajeNovedades: 'Hola {nombre} 👋, somos PN Group Librería. Te escribimos porque nos llegaron libros nuevos que te podrían interesar. Entra a nuestra tienda virtual para verlos: https://habitos-faciles.github.io/pn-group-libreria1/ ¡Saludos!',
+  cupones: [],
+  cuponAplicado: null,
+  mensajeNovedades: 'Hola {nombre}, somos PN Group Librería. Te escribimos porque nos llegaron Manuales sobre Salud y familia que te podrían interesar, siendo que ya eres considerado(a) como nuestro cliente. Entra a nuestra tienda virtual y por este mes llévate un Descuento de 10%: https://habitos-faciles.github.io/pn-group-libreria1/ ¡Saludos!',
   loading: true
 };
 state.misPedidosIds = [];
@@ -383,6 +385,7 @@ state.auth = { admin:false, repartidor:false };
 const COL_PRODUCTOS = 'productos';
 const COL_CATEGORIAS = 'categorias';
 const COL_PEDIDOS = 'pedidos';
+const COL_CUPONES = 'cupones';
 
 function guardarProducto(p){
   if(!db) return;
@@ -413,6 +416,16 @@ function guardarPedido(o){
   if(!db) return;
   db.collection(COL_PEDIDOS).doc(o.id).set(o)
     .catch(e=>{ console.error(e); toast('No se pudo guardar el pedido en la base de datos'); });
+}
+function guardarCuponDB(c){
+  if(!db) return;
+  db.collection(COL_CUPONES).doc(c.codigo).set(c)
+    .catch(e=>{ console.error(e); toast('No se pudo guardar el cupón en la base de datos'); });
+}
+function eliminarCuponDB(codigo){
+  if(!db) return;
+  db.collection(COL_CUPONES).doc(codigo).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar el cupón de la base de datos'); });
 }
 
 function seedData(){
@@ -453,7 +466,7 @@ function loadData(){
 /* Escucha cambios en tiempo real en cada colección. Cada documento sembrado
    una sola vez si la colección está totalmente vacía (primera vez que se usa
    la base de datos) — nunca vuelve a sobrescribir productos ya guardados. */
-let yaSembrado = { productos:false, categorias:false, pedidos:false };
+let yaSembrado = { productos:false, categorias:false, pedidos:false, cupones:false };
 function activarSincronizacionEnVivo(seed){
   if(!db){
     toast('Trabajando sin conexión a la base de datos — los cambios no se guardarán');
@@ -488,6 +501,16 @@ function activarSincronizacionEnVivo(seed){
       render();
     }
   }, err=>console.error('Sincronización pedidos', err));
+
+  db.collection(COL_CUPONES).onSnapshot(snap=>{
+    if(snap.empty && !yaSembrado.cupones){
+      yaSembrado.cupones = true;
+      guardarCuponDB({ codigo:'SALUD10', porcentaje:10, activo:true, descripcion:'Promo del mes — manuales de salud y familia' });
+    } else if(!snap.empty){
+      state.cupones = snap.docs.map(d=>d.data());
+      render();
+    }
+  }, err=>console.error('Sincronización cupones', err));
 }
 
 function showWelcome(){
@@ -517,12 +540,13 @@ function resetAll(){
     snap.docs.forEach(d=>batch.delete(d.ref));
     return batch.commit();
   });
-  Promise.all([borrarColeccion(COL_PRODUCTOS), borrarColeccion(COL_CATEGORIAS), borrarColeccion(COL_PEDIDOS)])
+  Promise.all([borrarColeccion(COL_PRODUCTOS), borrarColeccion(COL_CATEGORIAS), borrarColeccion(COL_PEDIDOS), borrarColeccion(COL_CUPONES)])
     .then(()=>{
-      yaSembrado = { productos:false, categorias:false, pedidos:false };
+      yaSembrado = { productos:false, categorias:false, pedidos:false, cupones:false };
       seed.products.forEach(p=>guardarProducto(p));
       seed.categories.forEach(c=>guardarCategoriaDB(c));
       seed.orders.forEach(o=>guardarPedido(o));
+      guardarCuponDB({ codigo:'SALUD10', porcentaje:10, activo:true, descripcion:'Promo del mes — manuales de salud y familia' });
     })
     .catch(e=>console.error(e));
 }
@@ -962,7 +986,7 @@ function renderAdminPedidos(){
             <td class="mono">${o.id}</td>
             <td>${o.cliente}</td>
             <td>${o.tipoEntrega==='delivery'?'Delivery':'Recojo en tienda'}</td>
-            <td class="price">${fmt(o.total)}</td>
+            <td class="price">${fmt(o.total)}${o.cupon ? `<div style="font-size:11px; color:var(--forest); font-weight:600">🏷️ ${o.cupon}</div>` : ''}</td>
             <td><span class="stamp-badge ${stampClass(o.estado)}">${o.estado}</span></td>
             <td>${o.estado!=='Entregado' ? `<button class="btn btn-outline btn-sm" onclick="avanzarEstado('${o.id}')">Avanzar estado →</button>` : ''}</td>
           </tr>`).join('')}
@@ -1012,6 +1036,26 @@ function renderAdminClientes(){
   const conCorreo = clientes.filter(c=>c.correo);
   return `
     <div class="panel">
+      <div class="panel-head"><h3>Cupones de descuento</h3><button class="btn btn-primary btn-sm" onclick="abrirCuponForm()">+ Nuevo cupón</button></div>
+      <table>
+        <thead><tr><th>Código</th><th>Descuento</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+        ${state.cupones.map(c=>`
+          <tr>
+            <td class="mono" style="font-weight:600">${c.codigo}</td>
+            <td class="mono">${c.porcentaje}%</td>
+            <td>${c.descripcion||''}</td>
+            <td>${c.activo ? '<span class="stamp-badge st-ok">Activo</span>' : '<span class="stamp-badge st-bajo">Inactivo</span>'}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-sm" onclick="toggleCupon('${c.codigo}')">${c.activo?'Desactivar':'Activar'}</button>
+              <button class="btn btn-danger btn-sm" onclick="eliminarCupon('${c.codigo}')">Eliminar</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${state.cupones.length===0 ? '<div class="empty">No hay cupones creados todavía.</div>' : ''}
+    </div>
+    <div class="panel">
       <div class="panel-head"><h3>Clientes que compraron libros</h3><span class="pill">${clientes.length} cliente${clientes.length===1?'':'s'}</span></div>
       <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 14px">Escribe el mensaje de novedades una vez, y usa los botones de cada cliente para enviarlo — así revisas cada envío antes de mandarlo (WhatsApp y correo no permiten automatizar el envío masivo sin herramientas de pago).</p>
       <div class="field">
@@ -1043,6 +1087,48 @@ function renderAdminClientes(){
 }
 function mensajePersonalizado(nombre){
   return (state.mensajeNovedades || '').replace(/\{nombre\}/g, nombre.split(' ')[0]);
+}
+function abrirCuponForm(){
+  const html = `
+    <div class="modal-backdrop" id="cuponModal" onclick="if(event.target===this) cerrarCuponForm()">
+      <div class="modal">
+        <h3>Nuevo cupón</h3>
+        <div class="field"><label>Código (los clientes lo escribirán así)</label><input id="f-cupon-codigo" placeholder="Ej. VERANO15" style="text-transform:uppercase"></div>
+        <div class="field"><label>Porcentaje de descuento</label><input id="f-cupon-porcentaje" type="number" min="1" max="90" placeholder="10"></div>
+        <div class="field"><label>Descripción (opcional, la ve el cliente)</label><input id="f-cupon-desc" placeholder="Ej. Promo de verano"></div>
+        <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="cerrarCuponForm()">Cancelar</button>
+          <button class="btn btn-primary" onclick="guardarCuponNuevo()">Crear cupón</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function cerrarCuponForm(){ const m=document.getElementById('cuponModal'); if(m) m.remove(); }
+function guardarCuponNuevo(){
+  const codigo = document.getElementById('f-cupon-codigo').value.trim().toUpperCase();
+  const porcentaje = parseInt(document.getElementById('f-cupon-porcentaje').value);
+  const descripcion = document.getElementById('f-cupon-desc').value.trim();
+  if(!codigo){ toast('Escribe un código'); return; }
+  if(!porcentaje || porcentaje<1 || porcentaje>90){ toast('El descuento debe ser entre 1% y 90%'); return; }
+  if(state.cupones.some(c=>c.codigo===codigo)){ toast('Ya existe un cupón con ese código'); return; }
+  const nuevo = { codigo, porcentaje, activo:true, descripcion };
+  state.cupones.push(nuevo);
+  cerrarCuponForm();
+  toast('Cupón creado'); render();
+  guardarCuponDB(nuevo);
+}
+function toggleCupon(codigo){
+  const c = state.cupones.find(x=>x.codigo===codigo);
+  if(!c) return;
+  c.activo = !c.activo;
+  render();
+  guardarCuponDB(c);
+}
+function eliminarCupon(codigo){
+  state.cupones = state.cupones.filter(c=>c.codigo!==codigo);
+  render();
+  eliminarCuponDB(codigo);
 }
 function abrirWhatsAppCliente(telefono, nombre){
   const msg = encodeURIComponent(mensajePersonalizado(nombre));
@@ -1173,11 +1259,27 @@ function addToCart(id){
   toast(`${p.nombre} agregado al carrito`); render();
 }
 
+function aplicarCupon(){
+  const codigo = document.getElementById('f-cupon').value.trim().toUpperCase();
+  if(!codigo){ toast('Escribe un código de descuento'); return; }
+  const cupon = state.cupones.find(c=>c.codigo===codigo);
+  if(!cupon){ toast('Ese código no existe'); return; }
+  if(!cupon.activo){ toast('Ese código ya no está activo'); return; }
+  state.cuponAplicado = cupon;
+  toast(`Cupón aplicado: -${cupon.porcentaje}%`);
+  render();
+}
+function quitarCupon(){
+  state.cuponAplicado = null;
+  render();
+}
 function renderCarrito(){
   if(state.cart.length===0){
     return `<div class="panel"><div class="empty">Tu carrito está vacío. Ve al catálogo para agregar productos.</div></div>`;
   }
-  const total = state.cart.reduce((s,c)=>s + c.cantidad*productById(c.productId).precio, 0);
+  const subtotal = state.cart.reduce((s,c)=>s + c.cantidad*productById(c.productId).precio, 0);
+  const descuento = state.cuponAplicado ? subtotal * (state.cuponAplicado.porcentaje/100) : 0;
+  const total = subtotal - descuento;
   return `
     <div class="panel">
       <h3>Tu carrito</h3>
@@ -1191,7 +1293,21 @@ function renderCarrito(){
           </div>
         </div>`;
       }).join('')}
-      <div style="display:flex; justify-content:flex-end; padding-top:12px; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px">Total: ${fmt(total)}</div>
+      <div class="field" style="max-width:280px; margin-top:14px">
+        <label>Código de descuento</label>
+        <div style="display:flex; gap:8px">
+          <input id="f-cupon" placeholder="Ej. SALUD10" value="${state.cuponAplicado ? state.cuponAplicado.codigo : ''}" ${state.cuponAplicado?'disabled':''} style="text-transform:uppercase">
+          ${state.cuponAplicado
+            ? `<button class="btn btn-outline btn-sm" onclick="quitarCupon()">Quitar</button>`
+            : `<button class="btn btn-outline btn-sm" onclick="aplicarCupon()">Aplicar</button>`}
+        </div>
+        ${state.cuponAplicado ? `<div style="font-size:12px; color:var(--forest); margin-top:6px">✓ ${state.cuponAplicado.descripcion || 'Descuento aplicado'} (-${state.cuponAplicado.porcentaje}%)</div>` : ''}
+      </div>
+      <div style="padding-top:14px">
+        ${descuento>0 ? `<div style="display:flex; justify-content:flex-end; gap:16px; font-size:13px; color:var(--ink-soft)"><span>Subtotal</span><span class="mono">${fmt(subtotal)}</span></div>
+        <div style="display:flex; justify-content:flex-end; gap:16px; font-size:13px; color:var(--forest)"><span>Descuento (${state.cuponAplicado.porcentaje}%)</span><span class="mono">-${fmt(descuento)}</span></div>` : ''}
+        <div style="display:flex; justify-content:flex-end; gap:16px; padding-top:4px; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px">Total: ${fmt(total)}</div>
+      </div>
     </div>
     <div class="panel">
       <h3>Datos de entrega</h3>
@@ -1279,7 +1395,9 @@ async function confirmarPedido(){
     if(c.cantidad > p.stock){ toast(`Sin stock suficiente de ${p.nombre}`); return; }
   }
   const items = state.cart.map(c=>({productId:c.productId, cantidad:c.cantidad, precio:productById(c.productId).precio}));
-  const total = items.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const subtotal = items.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const descuento = state.cuponAplicado ? subtotal * (state.cuponAplicado.porcentaje/100) : 0;
+  const total = subtotal - descuento;
   const order = {
     id: nextId('o', state.orders),
     cliente: nombreCliente,
@@ -1289,6 +1407,9 @@ async function confirmarPedido(){
     direccion,
     ubicacion: (tipo==='delivery' && lat && lng) ? { lat:parseFloat(lat), lng:parseFloat(lng) } : null,
     items,
+    subtotal,
+    cupon: state.cuponAplicado ? state.cuponAplicado.codigo : null,
+    descuento,
     total,
     estado: 'Pendiente',
     fecha: new Date().toISOString().slice(0,10)
@@ -1297,6 +1418,7 @@ async function confirmarPedido(){
   state.misPedidosIds.push(order.id);
   const productosActualizados = items.map(i=>{ const p = productById(i.productId); p.stock -= i.cantidad; return p; });
   state.cart = [];
+  state.cuponAplicado = null;
   toast('¡Pedido confirmado!'); state.clienteTab='pedidos'; render();
   guardarPedido(order);
   productosActualizados.forEach(p=>guardarProducto(p));
@@ -1316,7 +1438,7 @@ function renderMisPedidos(){
           <td class="mono">${o.id}</td>
           <td>${o.fecha}</td>
           <td>${o.tipoEntrega==='delivery'?'Delivery':'Recojo en tienda'}</td>
-          <td class="price">${fmt(o.total)}</td>
+          <td class="price">${fmt(o.total)}${o.cupon ? `<div style="font-size:11px; color:var(--forest); font-weight:600">🏷️ ${o.cupon}</div>` : ''}</td>
           <td><span class="stamp-badge ${stampClass(o.estado)}">${o.estado}</span></td>
         </tr>`).join('')}
         </tbody>
