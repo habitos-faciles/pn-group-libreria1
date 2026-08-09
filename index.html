@@ -52,7 +52,8 @@
   .bg-catalogo .oficina{ left:-30px; top:60px; width:260px; }
   .bg-catalogo .cocina{ left:calc(50% - 130px); bottom:-20px; width:260px; }
   .bg-catalogo .familia{ right:-30px; top:80px; width:280px; }
-  @media(max-width:900px){ .bg-catalogo .oficina, .bg-catalogo .familia{ display:none; } .bg-catalogo .cocina{ left:calc(50% - 110px); width:220px; } }
+  .bg-catalogo .salud{ left:calc(50% - 130px); top:-10px; width:240px; }
+  @media(max-width:900px){ .bg-catalogo .oficina, .bg-catalogo .familia, .bg-catalogo .salud{ display:none; } .bg-catalogo .cocina{ left:calc(50% - 110px); width:220px; } }
 
   /* Header */
   .masthead{
@@ -1037,6 +1038,13 @@ function renderCatalogo(){
         <circle cx="195" cy="110" r="12" fill="#B4903F"/>
         <path d="M177 165 Q177 132 195 132 Q213 132 213 165 Z" fill="#B4903F"/>
         <path d="M20 175 Q140 220 260 175" fill="none" stroke="#16233F" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
+      </svg>
+      <svg class="salud" viewBox="0 0 260 220" xmlns="http://www.w3.org/2000/svg">
+        <rect x="40" y="150" width="90" height="16" rx="3" fill="#16233F"/>
+        <rect x="48" y="132" width="82" height="16" rx="3" fill="#B4903F"/>
+        <rect x="42" y="114" width="78" height="16" rx="3" fill="#16233F"/>
+        <path d="M175 100 C175 80 200 78 205 95 C210 78 235 80 235 100 C235 118 205 135 205 135 C205 135 175 118 175 100 Z" fill="#16233F"/>
+        <path d="M150 148 L172 148 L182 128 L192 168 L200 148 L215 148" fill="none" stroke="#B4903F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </div>`;
   return fondoCatalogo + `
