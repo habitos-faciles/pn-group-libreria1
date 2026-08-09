@@ -757,6 +757,25 @@ function openProductForm(id){
           <div class="field"><label>Stock actual</label><input id="f-stock" type="number" min="0" value="${p?p.stock:''}"></div>
         </div>
         <div class="field"><label>Stock mínimo (alerta)</label><input id="f-stockmin" type="number" min="0" value="${p?p.stockMin:3}"></div>
+        <div style="border-top:1px solid var(--paper-line); margin:14px 0 10px; padding-top:12px">
+          <label style="display:block; margin-bottom:8px; font-weight:700">Ficha técnica (opcional — ideal para libros)</label>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Autor</label><input id="f-autor" value="${p&&p.autor?p.autor:''}" placeholder="Ej. Gabriel García Márquez"></div>
+          <div class="field"><label>Tamaño</label><input id="f-tamano" value="${p&&p.tamano?p.tamano:''}" placeholder="Ej. 14 x 21 cm"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Páginas</label><input id="f-paginas" type="number" min="0" value="${p&&p.paginas?p.paginas:''}" placeholder="Ej. 320"></div>
+          <div class="field"><label>Tapa</label>
+            <select id="f-tapa">
+              <option value="" ${!(p&&p.tapa)?'selected':''}>— No aplica —</option>
+              <option value="Tapa dura" ${p&&p.tapa==='Tapa dura'?'selected':''}>Tapa dura</option>
+              <option value="Tapa blanda" ${p&&p.tapa==='Tapa blanda'?'selected':''}>Tapa blanda</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Papel</label><input id="f-papel" value="${p&&p.papel?p.papel:''}" placeholder="Ej. Bond blanco 75g"></div>
+        <div class="field"><label>Descripción del producto</label><textarea id="f-descripcion" rows="3" style="width:100%; padding:10px; border:1.5px solid var(--paper-line); border-radius:6px; font-family:'Public Sans'; font-size:13.5px">${p&&p.descripcion?p.descripcion:''}</textarea></div>
         <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end">
           <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
           <button class="btn btn-primary" onclick="saveProduct('${p?p.id:''}')">Guardar</button>
@@ -935,13 +954,19 @@ function saveProduct(id){
   const stock = parseInt(document.getElementById('f-stock').value);
   const stockMin = parseInt(document.getElementById('f-stockmin').value);
   const foto = document.getElementById('f-foto-data').value;
+  const autor = document.getElementById('f-autor').value.trim();
+  const tamano = document.getElementById('f-tamano').value.trim();
+  const paginas = document.getElementById('f-paginas').value.trim();
+  const tapa = document.getElementById('f-tapa').value;
+  const papel = document.getElementById('f-papel').value.trim();
+  const descripcion = document.getElementById('f-descripcion').value.trim();
   if(!nombre || isNaN(precio) || isNaN(stock) || isNaN(stockMin)){ toast('Completa todos los campos correctamente'); return; }
   let producto;
   if(id){
     producto = productById(id);
-    Object.assign(producto, {nombre, categoria, precio, stock, stockMin, foto});
+    Object.assign(producto, {nombre, categoria, precio, stock, stockMin, foto, autor, tamano, paginas, tapa, papel, descripcion});
   } else {
-    producto = { id:nextId('p', state.products), nombre, categoria, precio, stock, stockMin, foto };
+    producto = { id:nextId('p', state.products), nombre, categoria, precio, stock, stockMin, foto, autor, tamano, paginas, tapa, papel, descripcion };
     state.products.push(producto);
   }
   closeModal(); toast('Producto guardado'); render();
@@ -1395,6 +1420,7 @@ function renderCatalogo(){
           <h4>${p.nombre}</h4>
           <div class="price">${fmt(p.precio)}</div>
           <div style="font-size:12px; color:var(--ink-soft)">${p.stock>0 ? p.stock+' disponibles' : 'Sin stock'}</div>
+          ${tieneFichaTecnica(p) ? `<button onclick="verDetalleProducto('${p.id}')" style="background:none; border:none; padding:0; text-align:left; color:var(--blue); font-size:12px; text-decoration:underline; cursor:pointer; margin-top:2px">📖 Ver características</button>` : ''}
           <div class="row-bottom">
             <button class="btn btn-primary btn-sm" ${p.stock<=0?'disabled':''} onclick="addToCart('${p.id}')">Agregar</button>
           </div>
@@ -1404,6 +1430,41 @@ function renderCatalogo(){
   `;
 }
 function setCatFilter(c){ state.catFilter=c; render(); }
+function tieneFichaTecnica(p){
+  return !!(p.autor || p.tamano || p.paginas || p.tapa || p.papel || p.descripcion);
+}
+function verDetalleProducto(id){
+  const p = productById(id);
+  if(!p) return;
+  const filas = [
+    ['Título', p.nombre],
+    ['Autor', p.autor],
+    ['Tamaño', p.tamano],
+    ['Páginas', p.paginas],
+    ['Tapa', p.tapa],
+    ['Papel', p.papel]
+  ].filter(([,v])=>v);
+  const html = `
+    <div class="modal-backdrop" id="detalleModal" onclick="if(event.target===this) cerrarDetalleProducto()">
+      <div class="modal" style="max-width:420px">
+        ${p.foto ? `<img src="${p.foto}" alt="${p.nombre}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:14px">` : ''}
+        <h3>${p.nombre}</h3>
+        <div class="price" style="margin-bottom:12px">${fmt(p.precio)}</div>
+        <table style="margin-bottom:12px">
+          <tbody>
+          ${filas.map(([label,val])=>`<tr><td style="padding:4px 10px 4px 0; color:var(--ink-soft); font-size:13px; white-space:nowrap">${label}</td><td style="padding:4px 0; font-size:13px; font-weight:600">${val}</td></tr>`).join('')}
+          </tbody>
+        </table>
+        ${p.descripcion ? `<p style="font-size:13.5px; line-height:1.6; color:var(--ink)">${p.descripcion}</p>` : ''}
+        <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="cerrarDetalleProducto()">Cerrar</button>
+          <button class="btn btn-primary" ${p.stock<=0?'disabled':''} onclick="addToCart('${p.id}'); cerrarDetalleProducto()">Agregar al carrito</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function cerrarDetalleProducto(){ const m=document.getElementById('detalleModal'); if(m) m.remove(); }
 function setSearchQuery(val){
   state.searchQuery = val;
   render();
