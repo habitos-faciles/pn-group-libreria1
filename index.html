@@ -1082,22 +1082,19 @@ function avanzarEstado(id){
 function clientesQueCompraronLibros(){
   const mapa = new Map();
   state.orders.forEach(o=>{
-    const tieneLibro = o.items.some(i=>{
-      const p = productById(i.productId);
-      return p && p.categoria === 'Libros';
-    });
-    if(!tieneLibro || !o.telefono) return;
+    if(!o.telefono) return;
     const cantidadLibros = o.items.filter(i=>{
       const p = productById(i.productId);
       return p && p.categoria === 'Libros';
     }).length;
     if(mapa.has(o.telefono)){
       const existente = mapa.get(o.telefono);
-      existente.pedidosLibros += 1;
+      existente.pedidos += 1;
+      existente.pedidosLibros += cantidadLibros>0 ? 1 : 0;
       if(o.correo) existente.correo = o.correo;
-      if(o.fecha > existente.fecha){ existente.cliente = o.cliente; existente.fecha = o.fecha; }
+      if(o.fecha >= existente.fecha){ existente.cliente = o.cliente; existente.fecha = o.fecha; }
     } else {
-      mapa.set(o.telefono, { cliente:o.cliente, telefono:o.telefono, correo:o.correo||'', pedidosLibros:1, fecha:o.fecha, origen:'Pedido' });
+      mapa.set(o.telefono, { cliente:o.cliente, telefono:o.telefono, correo:o.correo||'', pedidos:1, pedidosLibros: cantidadLibros>0?1:0, fecha:o.fecha, origen:'Pedido' });
     }
   });
   return Array.from(mapa.values());
@@ -1112,7 +1109,7 @@ function baseDeClientes(){
       if(!existente.correo && c.correo) existente.correo = c.correo;
       existente.origen = existente.origen === 'Pedido' ? 'Pedido + Importado' : existente.origen;
     } else {
-      mapa.set(c.telefono, { cliente:c.nombre, telefono:c.telefono, correo:c.correo||'', pedidosLibros:0, fecha:c.fecha||'', origen:'Importado' });
+      mapa.set(c.telefono, { cliente:c.nombre, telefono:c.telefono, correo:c.correo||'', pedidos:0, pedidosLibros:0, fecha:c.fecha||'', origen:'Importado' });
     }
   });
   return Array.from(mapa.values())
@@ -1215,7 +1212,7 @@ function renderAdminClientes(){
             <td>${c.cliente}</td>
             <td class="mono">${c.telefono}</td>
             <td>${c.correo || '<span style="color:var(--ink-soft)">— sin correo —</span>'}</td>
-            <td><span class="pill">${c.origen}${c.pedidosLibros>0 ? ' · '+c.pedidosLibros+' pedido(s)' : ''}</span></td>
+            <td><span class="pill">${c.origen}${c.pedidos>0 ? ' · '+c.pedidos+' pedido(s)'+(c.pedidosLibros>0?' ('+c.pedidosLibros+' con libros)':'') : ''}</span></td>
             <td style="white-space:nowrap; display:flex; gap:6px">
               <button class="btn btn-outline btn-sm" onclick="abrirWhatsAppCliente('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">📱 WhatsApp</button>
               ${c.correo ? `<button class="btn btn-outline btn-sm" onclick="abrirCorreoCliente('${c.correo}','${c.cliente.replace(/'/g,"\\'")}')">📧 Correo</button>` : ''}
