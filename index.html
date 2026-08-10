@@ -371,6 +371,7 @@ let state = {
   cupones: [],
   cuponAplicado: null,
   clientesImportados: [],
+  clientesExcluidos: [],
   bulkClientesPreview: [],
   mensajeNovedades: 'Hola {nombre}, somos tu Catálogo Virtual y Librería. Te escribimos porque nos llegaron Manuales sobre Salud y familia que te podrían interesar, siendo que ya eres considerado(a) como nuestro cliente. Entra a nuestra tienda virtual y por este mes llévate un Descuento de 10%: https://habitos-faciles.github.io/pn-group-libreria1/ En la opción de Carrito escribe el Código SALUD10 y APLICA el descuento de este mes. ¡Saludos!',
   loading: true
@@ -392,6 +393,7 @@ const COL_CATEGORIAS = 'categorias';
 const COL_PEDIDOS = 'pedidos';
 const COL_CUPONES = 'cupones';
 const COL_CLIENTES = 'clientes';
+const COL_EXCLUIDOS = 'clientes_excluidos';
 
 function guardarProducto(p){
   if(!db) return;
@@ -441,6 +443,11 @@ function guardarClienteDB(c){
 function eliminarClienteDB(telefono){
   if(!db) return;
   db.collection(COL_CLIENTES).doc(telefono).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar el cliente de la base de datos'); });
+}
+function guardarExclusionDB(telefono){
+  if(!db) return;
+  db.collection(COL_EXCLUIDOS).doc(telefono).set({ telefono })
     .catch(e=>{ console.error(e); toast('No se pudo eliminar el cliente de la base de datos'); });
 }
 
@@ -532,6 +539,11 @@ function activarSincronizacionEnVivo(seed){
     state.clientesImportados = snap.docs.map(d=>d.data());
     render();
   }, err=>console.error('Sincronización clientes', err));
+
+  db.collection(COL_EXCLUIDOS).onSnapshot(snap=>{
+    state.clientesExcluidos = snap.docs.map(d=>d.id);
+    render();
+  }, err=>console.error('Sincronización exclusiones', err));
 }
 
 function showWelcome(){
@@ -1089,7 +1101,9 @@ function baseDeClientes(){
       mapa.set(c.telefono, { cliente:c.nombre, telefono:c.telefono, correo:c.correo||'', pedidosLibros:0, fecha:c.fecha||'', origen:'Importado' });
     }
   });
-  return Array.from(mapa.values()).sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  return Array.from(mapa.values())
+    .filter(c => !state.clientesExcluidos.includes(c.telefono))
+    .sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
 }
 
 function renderAdminClientes(){
@@ -1145,6 +1159,7 @@ function renderAdminClientes(){
             <td style="white-space:nowrap; display:flex; gap:6px">
               <button class="btn btn-outline btn-sm" onclick="abrirWhatsAppCliente('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">📱 WhatsApp</button>
               ${c.correo ? `<button class="btn btn-outline btn-sm" onclick="abrirCorreoCliente('${c.correo}','${c.cliente.replace(/'/g,"\\'")}')">📧 Correo</button>` : ''}
+              <button class="btn btn-danger btn-sm" onclick="eliminarClienteLista('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">🗑️</button>
             </td>
           </tr>`).join('')}
         </tbody>
@@ -1328,6 +1343,14 @@ function abrirCorreoCliente(correo, nombre){
   const asunto = encodeURIComponent('Novedades de libros — Catálogo Virtual y Librería');
   const cuerpo = encodeURIComponent(mensajePersonalizado(nombre));
   window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(correo)}&su=${asunto}&body=${cuerpo}`, '_blank');
+}
+function eliminarClienteLista(telefono, nombre){
+  if(!confirm(`¿Eliminar a ${nombre} de la lista de clientes? No se borrarán sus pedidos, solo saldrá de esta lista de contactos.`)) return;
+  state.clientesImportados = state.clientesImportados.filter(c=>c.telefono!==telefono);
+  if(!state.clientesExcluidos.includes(telefono)) state.clientesExcluidos.push(telefono);
+  toast('Cliente eliminado de la lista'); render();
+  eliminarClienteDB(telefono);
+  guardarExclusionDB(telefono);
 }
 function copiarCorreosClientes(){
   const correos = clientesQueCompraronLibros().filter(c=>c.correo).map(c=>c.correo).join(', ');
