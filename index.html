@@ -368,6 +368,7 @@ let state = {
   cart: [], // {productId, cantidad}
   catFilter: 'Todas',
   searchQuery: '',
+  searchQueryClientes: '',
   cupones: [],
   cuponAplicado: null,
   clientesImportados: [],
@@ -1132,7 +1133,9 @@ function posiblesDuplicados(){
 }
 
 function renderAdminClientes(){
-  const clientes = baseDeClientes();
+  const todosLosClientes = baseDeClientes();
+  const qc = state.searchQueryClientes.trim().toLowerCase();
+  const clientes = qc ? todosLosClientes.filter(c=> c.cliente.toLowerCase().includes(qc) || c.telefono.includes(qc) || (c.correo||'').toLowerCase().includes(qc)) : todosLosClientes;
   const conCorreo = clientes.filter(c=>c.correo);
   const duplicados = posiblesDuplicados();
   return `
@@ -1197,6 +1200,13 @@ function renderAdminClientes(){
       ${conCorreo.length ? `<button class="btn btn-outline btn-sm" onclick="copiarCorreosClientes()">📋 Copiar todos los correos (para CC/CCO masivo desde tu Gmail)</button>` : ''}
     </div>
     <div class="panel">
+      <div class="field" style="max-width:380px; margin-bottom:14px">
+        <div style="position:relative">
+          <input id="searchClientesInput" type="text" placeholder="🔎 Buscar por nombre, celular o correo…" value="${state.searchQueryClientes.replace(/"/g,'&quot;')}"
+            oninput="setSearchQueryClientes(this.value)" style="padding-left:14px">
+          ${state.searchQueryClientes ? `<button onclick="setSearchQueryClientes('')" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:none; background:none; cursor:pointer; color:var(--ink-soft); font-size:16px">✕</button>` : ''}
+        </div>
+      </div>
       <table>
         <thead><tr><th>Cliente</th><th>Celular</th><th>Correo</th><th>Origen</th><th></th></tr></thead>
         <tbody>
@@ -1214,7 +1224,7 @@ function renderAdminClientes(){
           </tr>`).join('')}
         </tbody>
       </table>
-      ${clientes.length===0 ? '<div class="empty">Todavía no hay clientes registrados. Importa tu lista o espera el primer pedido.</div>' : ''}
+      ${clientes.length===0 ? `<div class="empty">${qc ? 'No encontramos clientes con ese dato.' : 'Todavía no hay clientes registrados. Importa tu lista o espera el primer pedido.'}</div>` : ''}
     </div>
   `;
 }
@@ -1554,6 +1564,12 @@ function setSearchQuery(val){
   state.searchQuery = val;
   render();
   const input = document.getElementById('searchInput');
+  if(input){ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+function setSearchQueryClientes(val){
+  state.searchQueryClientes = val;
+  render();
+  const input = document.getElementById('searchClientesInput');
   if(input){ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
 function addToCart(id){
