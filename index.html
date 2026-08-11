@@ -369,6 +369,7 @@ let state = {
   catFilter: 'Todas',
   searchQuery: '',
   searchQueryClientes: '',
+  enviosNovedades: {},
   cupones: [],
   cuponAplicado: null,
   clientesImportados: [],
@@ -396,6 +397,7 @@ const COL_CUPONES = 'cupones';
 const COL_CLIENTES = 'clientes';
 const COL_EXCLUIDOS = 'clientes_excluidos';
 const COL_CONFIG = 'configuracion';
+const COL_ENVIOS = 'envios_novedades';
 
 function guardarProducto(p){
   if(!db) return;
@@ -456,6 +458,25 @@ function guardarMensajeNovedadesDB(texto){
   if(!db) return;
   db.collection(COL_CONFIG).doc('mensajeNovedades').set({ texto })
     .catch(e=>{ console.error(e); toast('No se pudo guardar el mensaje en la base de datos'); });
+}
+function marcarEnvio(telefono, canal){
+  const fecha = new Date().toLocaleDateString('es-PE');
+  const existente = state.enviosNovedades[telefono] || { telefono };
+  existente[canal] = fecha;
+  state.enviosNovedades[telefono] = existente;
+  render();
+  if(!db) return;
+  db.collection(COL_ENVIOS).doc(telefono).set(existente)
+    .catch(e=>console.error('No se pudo guardar el envío', e));
+}
+function reiniciarMarcasEnvio(){
+  if(!confirm('¿Quitar todas las marcas de "ya enviado"? Útil cuando empieces una campaña nueva.')) return;
+  const telefonos = Object.keys(state.enviosNovedades);
+  state.enviosNovedades = {};
+  render();
+  if(!db) return;
+  telefonos.forEach(t=> db.collection(COL_ENVIOS).doc(t).delete().catch(()=>{}));
+  toast('Marcas de envío reiniciadas');
 }
 
 function seedData(){
@@ -558,6 +579,13 @@ function activarSincronizacionEnVivo(seed){
       render();
     }
   }, err=>console.error('Sincronización mensaje de novedades', err));
+
+  db.collection(COL_ENVIOS).onSnapshot(snap=>{
+    const mapa = {};
+    snap.docs.forEach(d=> mapa[d.id] = d.data());
+    state.enviosNovedades = mapa;
+    render();
+  }, err=>console.error('Sincronización envíos', err));
 }
 
 function showWelcome(){
@@ -1184,6 +1212,7 @@ function renderAdminClientes(){
           <button class="btn btn-outline btn-sm" onclick="descargarPlantillaClientes()">⬇ Descargar plantilla</button>
           <button class="btn btn-primary btn-sm" onclick="openBulkClientesModal()">📤 Cargar clientes (Excel)</button>
           <button class="btn btn-outline btn-sm" onclick="exportarClientesExcel()">📥 Exportar lista (Excel)</button>
+          <button class="btn btn-outline btn-sm" onclick="reiniciarMarcasEnvio()">🔄 Reiniciar marcas de envío</button>
         </div>
       </div>
       <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 14px">Aquí aparecen tanto los clientes que ya te compraron por la tienda como los que importes desde tu lista anterior (Excel). Escribe el mensaje de novedades una vez, y usa los botones de cada cliente para enviarlo — así revisas cada envío antes de mandarlo (WhatsApp y correo no permiten automatizar el envío masivo sin herramientas de pago).</p>
@@ -1208,18 +1237,22 @@ function renderAdminClientes(){
       <table>
         <thead><tr><th>Cliente</th><th>Celular</th><th>Correo</th><th>Origen</th><th></th></tr></thead>
         <tbody>
-        ${clientes.map(c=>`
-          <tr>
+        ${clientes.map(c=>{
+          const envio = state.enviosNovedades[c.telefono];
+          const yaWhatsapp = envio && envio.whatsapp;
+          const yaCorreo = envio && envio.correo;
+          return `
+          <tr style="${envio ? 'background:var(--green-soft)' : ''}">
             <td>${c.cliente}</td>
             <td class="mono">${c.telefono}</td>
             <td>${c.correo || '<span style="color:var(--ink-soft)">— sin correo —</span>'}</td>
             <td><span class="pill">${c.origen}${c.pedidos>0 ? ' · '+c.pedidos+' pedido(s)'+(c.pedidosLibros>0?' ('+c.pedidosLibros+' con libros)':'') : ''}</span></td>
-            <td style="white-space:nowrap; display:flex; gap:6px">
-              <button class="btn btn-outline btn-sm" onclick="abrirWhatsAppCliente('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">📱 WhatsApp</button>
-              ${c.correo ? `<button class="btn btn-outline btn-sm" onclick="abrirCorreoCliente('${c.correo}','${c.cliente.replace(/'/g,"\\'")}')">📧 Correo</button>` : ''}
+            <td style="white-space:nowrap; display:flex; gap:6px; flex-wrap:wrap">
+              <button class="btn ${yaWhatsapp?'btn-primary':'btn-outline'} btn-sm" onclick="abrirWhatsAppCliente('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">${yaWhatsapp ? '✓ Enviado ('+envio.whatsapp+')' : '📱 WhatsApp'}</button>
+              ${c.correo ? `<button class="btn ${yaCorreo?'btn-primary':'btn-outline'} btn-sm" onclick="abrirCorreoCliente('${c.correo}','${c.cliente.replace(/'/g,"\\'")}','${c.telefono}')">${yaCorreo ? '✓ Enviado ('+envio.correo+')' : '📧 Correo'}</button>` : ''}
               <button class="btn btn-danger btn-sm" onclick="eliminarClienteLista('${c.telefono}','${c.cliente.replace(/'/g,"\\'")}')">🗑️</button>
             </td>
-          </tr>`).join('')}
+          </tr>`;}).join('')}
         </tbody>
       </table>
       ${clientes.length===0 ? `<div class="empty">${qc ? 'No encontramos clientes con ese dato.' : 'Todavía no hay clientes registrados. Importa tu lista o espera el primer pedido.'}</div>` : ''}
@@ -1415,11 +1448,13 @@ function abrirWhatsAppCliente(telefono, nombre){
   const numero = telefono.replace(/\D/g,'');
   const conPrefijo = numero.startsWith('51') ? numero : '51'+numero;
   window.open(`https://wa.me/${conPrefijo}?text=${msg}`, '_blank');
+  marcarEnvio(telefono, 'whatsapp');
 }
-function abrirCorreoCliente(correo, nombre){
+function abrirCorreoCliente(correo, nombre, telefono){
   const asunto = encodeURIComponent('Novedades de libros — Catálogo Virtual y Librería');
   const cuerpo = encodeURIComponent(mensajePersonalizado(nombre));
   window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(correo)}&su=${asunto}&body=${cuerpo}`, '_blank');
+  if(telefono) marcarEnvio(telefono, 'correo');
 }
 function guardarMensajeNovedades(){
   guardarMensajeNovedadesDB(state.mensajeNovedades);
