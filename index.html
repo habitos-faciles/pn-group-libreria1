@@ -1183,6 +1183,7 @@ function renderAdminClientes(){
           <span class="pill">${clientes.length} cliente${clientes.length===1?'':'s'}</span>
           <button class="btn btn-outline btn-sm" onclick="descargarPlantillaClientes()">⬇ Descargar plantilla</button>
           <button class="btn btn-primary btn-sm" onclick="openBulkClientesModal()">📤 Cargar clientes (Excel)</button>
+          <button class="btn btn-outline btn-sm" onclick="exportarClientesExcel()">📥 Exportar lista (Excel)</button>
         </div>
       </div>
       <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 14px">Aquí aparecen tanto los clientes que ya te compraron por la tienda como los que importes desde tu lista anterior (Excel). Escribe el mensaje de novedades una vez, y usa los botones de cada cliente para enviarlo — así revisas cada envío antes de mandarlo (WhatsApp y correo no permiten automatizar el envío masivo sin herramientas de pago).</p>
@@ -1248,6 +1249,25 @@ function openBulkClientesModal(){
 }
 function closeBulkClientesModal(){ const m=document.getElementById('bulkClientesModal'); if(m) m.remove(); state.bulkClientesPreview=[]; }
 
+function exportarClientesExcel(){
+  try{
+    const clientes = baseDeClientes();
+    if(clientes.length===0){ toast('No hay clientes para exportar'); return; }
+    const wsData = [
+      ['Nombre','Celular','Celular con código de país','Correo','Origen','Total pedidos']
+    ];
+    clientes.forEach(c=>{
+      const numero = c.telefono.replace(/\D/g,'');
+      const conPrefijo = numero.startsWith('51') ? numero : '51'+numero;
+      wsData.push([c.cliente, c.telefono, '+'+conPrefijo, c.correo||'', c.origen, c.pedidos||0]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+    XLSX.writeFile(wb, 'clientes_catalogo_virtual_libreria.xlsx');
+    toast(`${clientes.length} clientes exportados`);
+  }catch(e){ toast('No se pudo exportar la lista'); console.error(e); }
+}
 function descargarPlantillaClientes(){
   try{
     const wsData = [
