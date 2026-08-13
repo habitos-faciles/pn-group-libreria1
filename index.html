@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-app-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --paper:#F7F8FB;
@@ -1678,6 +1679,7 @@ function verCotizacion(id){
         <div style="text-align:right; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px; margin-top:8px">Total: ${fmt(c.total)}</div>
         <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end; flex-wrap:wrap">
           <button class="btn btn-outline" onclick="cerrarVerCotizacion()">Cerrar</button>
+          <button class="btn btn-outline" onclick="generarPDFCotizacion('${c.id}')">🖨️ Descargar PDF</button>
           <button class="btn btn-outline" onclick="enviarCotizacionWhatsApp('${c.id}')">📱 Enviar por WhatsApp</button>
           ${c.correo ? `<button class="btn btn-primary" onclick="enviarCotizacionCorreo('${c.id}')">📧 Enviar por correo</button>` : ''}
         </div>
@@ -1687,6 +1689,74 @@ function verCotizacion(id){
 }
 function cerrarVerCotizacion(){ const m=document.getElementById('verCotizacionModal'); if(m) m.remove(); }
 
+function generarPDFCotizacion(id){
+  const c = state.cotizaciones.find(x=>x.id===id);
+  if(!c) return;
+  if(typeof window.jspdf === 'undefined'){ toast('No se pudo cargar el generador de PDF, revisa tu conexión'); return; }
+  try{
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const logoImg = document.querySelector('.brand-logo');
+    try{
+      if(logoImg && logoImg.src && logoImg.src.startsWith('data:image')){
+        doc.addImage(logoImg.src, 'PNG', 15, 12, 42, 19);
+      }
+    }catch(e){}
+
+    doc.setFont(undefined,'bold'); doc.setFontSize(15); doc.setTextColor(22,35,63);
+    doc.text('Catálogo Virtual y Librería', 62, 20);
+    doc.setFont(undefined,'normal'); doc.setFontSize(9); doc.setTextColor(90,100,120);
+    doc.text('Asociación Casa Editora Sudamericana', 62, 26);
+
+    doc.setDrawColor(200); doc.line(15, 36, 195, 36);
+
+    doc.setFont(undefined,'bold'); doc.setFontSize(13); doc.setTextColor(22,35,63);
+    doc.text(`Cotización ${c.id}`, 15, 46);
+    doc.setFont(undefined,'normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+    doc.text(`Fecha: ${c.fecha}`, 140, 46);
+    doc.text(`Cliente: ${c.cliente}`, 15, 54);
+    doc.text(`Celular: ${c.telefono}`, 15, 60);
+    if(c.correo) doc.text(`Correo: ${c.correo}`, 15, 66);
+
+    let y = c.correo ? 78 : 72;
+    doc.setFillColor(22,35,63);
+    doc.rect(15, y-6, 180, 8, 'F');
+    doc.setTextColor(255,255,255); doc.setFont(undefined,'bold'); doc.setFontSize(10);
+    doc.text('Producto', 18, y);
+    doc.text('Cant.', 130, y);
+    doc.text('Precio', 150, y);
+    doc.text('Subtotal', 172, y);
+    y += 8;
+
+    doc.setFont(undefined,'normal'); doc.setTextColor(40,40,40); doc.setFontSize(10);
+    c.items.forEach((i,idx)=>{
+      if(y > 270){ doc.addPage(); y = 20; }
+      if(idx % 2 === 1){ doc.setFillColor(245,246,249); doc.rect(15, y-5, 180, 7, 'F'); }
+      doc.text(String(i.nombre).substring(0,52), 18, y);
+      doc.text(String(i.cantidad), 130, y);
+      doc.text(fmt(i.precio), 150, y);
+      doc.text(fmt(i.cantidad*i.precio), 172, y);
+      y += 7;
+    });
+
+    doc.setDrawColor(200); doc.line(15, y+1, 195, y+1);
+    y += 10;
+    doc.setFont(undefined,'bold'); doc.setFontSize(13); doc.setTextColor(22,35,63);
+    doc.text(`Total: ${fmt(c.total)}`, 140, y);
+
+    y += 18;
+    doc.setFont(undefined,'normal'); doc.setFontSize(9); doc.setTextColor(120,120,120);
+    doc.text('Esta cotización es referencial. Para confirmar tu pedido, entra a nuestra tienda:', 15, y);
+    doc.setTextColor(44,74,102);
+    doc.text('https://habitos-faciles.github.io/pn-group-libreria1/', 15, y+5);
+
+    doc.save(`Cotizacion_${c.id}.pdf`);
+  }catch(e){
+    console.error(e);
+    toast('No se pudo generar el PDF');
+  }
+}
 function textoCotizacion(c){
   const lineas = c.items.map(i=>`${i.cantidad}x ${i.nombre} — ${fmt(i.precio)} c/u = ${fmt(i.cantidad*i.precio)}`).join('\n');
   return `Hola ${c.cliente.split(' ')[0]}, aquí tienes tu cotización ${c.id} de Catálogo Virtual y Librería:\n\n${lineas}\n\nTotal: ${fmt(c.total)}\n\nSi deseas confirmar el pedido, entra a nuestra tienda: https://habitos-faciles.github.io/pn-group-libreria1/\n¡Saludos!`;
