@@ -374,6 +374,7 @@ let state = {
   cotizaciones: [],
   cotizacionItems: [],
   cotizacionClienteNuevo: false,
+  cotizacionCuponAplicado: null,
   cupones: [],
   cuponAplicado: null,
   clientesImportados: [],
@@ -1509,7 +1510,7 @@ function renderAdminCotizaciones(){
     <div class="panel">
       <div class="panel-head"><h3>Cotizaciones</h3><button class="btn btn-primary btn-sm" onclick="abrirCotizacionForm()">+ Nueva cotización</button></div>
       <table>
-        <thead><tr><th>N°</th><th>Cliente</th><th>Fecha</th><th>Total</th><th></th></tr></thead>
+        <thead><tr><th>N°</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Estado</th><th></th></tr></thead>
         <tbody>
         ${lista.map(c=>`
           <tr>
@@ -1517,6 +1518,7 @@ function renderAdminCotizaciones(){
             <td>${c.cliente}</td>
             <td>${c.fecha}</td>
             <td class="price">${fmt(c.total)}</td>
+            <td>${c.estado==='Aceptada' ? '<span class="stamp-badge st-entregado">Aceptada</span>' : '<span class="stamp-badge st-pendiente">Pendiente</span>'}</td>
             <td style="white-space:nowrap">
               <button class="btn btn-outline btn-sm" onclick="verCotizacion('${c.id}')">Ver</button>
               <button class="btn btn-danger btn-sm" onclick="eliminarCotizacion('${c.id}')">Eliminar</button>
@@ -1532,6 +1534,7 @@ function renderAdminCotizaciones(){
 function abrirCotizacionForm(){
   state.cotizacionItems = [];
   state.cotizacionClienteNuevo = false;
+  state.cotizacionCuponAplicado = null;
   const clientes = baseDeClientes();
   const html = `
     <div class="modal-backdrop" id="cotizacionModal" onclick="if(event.target===this) cerrarCotizacionForm()">
@@ -1570,6 +1573,7 @@ function abrirCotizacionForm(){
           </div>
         </div>
         <div id="cot-items-lista">${renderCotizacionItemsHtml()}</div>
+        <div id="cot-cupon-area">${renderCotizacionCuponHtml()}</div>
 
         <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end">
           <button class="btn btn-outline" onclick="cerrarCotizacionForm()">Cancelar</button>
@@ -1579,7 +1583,37 @@ function abrirCotizacionForm(){
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', html);
 }
-function cerrarCotizacionForm(){ const m=document.getElementById('cotizacionModal'); if(m) m.remove(); state.cotizacionItems=[]; }
+function cerrarCotizacionForm(){ const m=document.getElementById('cotizacionModal'); if(m) m.remove(); state.cotizacionItems=[]; state.cotizacionCuponAplicado=null; }
+function renderCotizacionCuponHtml(){
+  return `
+    <div class="field" style="max-width:280px; margin-top:12px">
+      <label>Código de descuento (opcional)</label>
+      <div style="display:flex; gap:8px">
+        <input id="f-cot-cupon" placeholder="Ej. SALUD10" value="${state.cotizacionCuponAplicado ? state.cotizacionCuponAplicado.codigo : ''}" ${state.cotizacionCuponAplicado?'disabled':''} style="text-transform:uppercase">
+        ${state.cotizacionCuponAplicado
+          ? `<button type="button" class="btn btn-outline btn-sm" onclick="quitarCuponCotizacion()">Quitar</button>`
+          : `<button type="button" class="btn btn-outline btn-sm" onclick="aplicarCuponCotizacion()">Aplicar</button>`}
+      </div>
+      ${state.cotizacionCuponAplicado ? `<div style="font-size:12px; color:var(--forest); margin-top:6px">✓ -${state.cotizacionCuponAplicado.porcentaje}% aplicado</div>` : ''}
+    </div>
+  `;
+}
+function aplicarCuponCotizacion(){
+  const codigo = document.getElementById('f-cot-cupon').value.trim().toUpperCase();
+  if(!codigo){ toast('Escribe un código de descuento'); return; }
+  const cupon = state.cupones.find(c=>c.codigo===codigo);
+  if(!cupon){ toast('Ese código no existe'); return; }
+  if(!cupon.activo){ toast('Ese código ya no está activo'); return; }
+  state.cotizacionCuponAplicado = cupon;
+  toast(`Cupón aplicado: -${cupon.porcentaje}%`);
+  document.getElementById('cot-cupon-area').innerHTML = renderCotizacionCuponHtml();
+  document.getElementById('cot-items-lista').innerHTML = renderCotizacionItemsHtml();
+}
+function quitarCuponCotizacion(){
+  state.cotizacionCuponAplicado = null;
+  document.getElementById('cot-cupon-area').innerHTML = renderCotizacionCuponHtml();
+  document.getElementById('cot-items-lista').innerHTML = renderCotizacionItemsHtml();
+}
 
 function onCambioClienteCotizacion(val){
   if(val==='__nuevo__'){
@@ -1597,7 +1631,9 @@ function cancelarClienteNuevoCotizacion(){
 
 function renderCotizacionItemsHtml(){
   if(state.cotizacionItems.length===0) return '<div class="empty" style="padding:16px">Todavía no agregaste productos.</div>';
-  const total = state.cotizacionItems.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const subtotal = state.cotizacionItems.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const descuento = state.cotizacionCuponAplicado ? subtotal * (state.cotizacionCuponAplicado.porcentaje/100) : 0;
+  const total = subtotal - descuento;
   return `
     <table>
       <thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
@@ -1612,7 +1648,11 @@ function renderCotizacionItemsHtml(){
         </tr>`).join('')}
       </tbody>
     </table>
-    <div style="text-align:right; font-family:'IBM Plex Mono'; font-weight:600; font-size:15px; margin-top:8px">Total: ${fmt(total)}</div>
+    <div style="text-align:right; margin-top:8px">
+      ${descuento>0 ? `<div style="font-size:13px; color:var(--ink-soft)">Subtotal: ${fmt(subtotal)}</div>
+      <div style="font-size:13px; color:var(--forest)">Descuento (${state.cotizacionCuponAplicado.porcentaje}%): -${fmt(descuento)}</div>` : ''}
+      <div style="font-family:'IBM Plex Mono'; font-weight:600; font-size:15px">Total: ${fmt(total)}</div>
+    </div>
   `;
 }
 function agregarItemCotizacion(){
@@ -1646,14 +1686,20 @@ function guardarCotizacion(){
     nombre = c.cliente; telefono = c.telefono; correo = c.correo;
   }
   if(state.cotizacionItems.length===0){ toast('Agrega al menos un producto'); return; }
-  const total = state.cotizacionItems.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const subtotal = state.cotizacionItems.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const descuento = state.cotizacionCuponAplicado ? subtotal * (state.cotizacionCuponAplicado.porcentaje/100) : 0;
+  const total = subtotal - descuento;
   const cotizacion = {
     id: nextId('COT-', state.cotizaciones),
     cliente: nombre,
     telefono,
     correo: correo||'',
     items: state.cotizacionItems,
+    subtotal,
+    cupon: state.cotizacionCuponAplicado ? state.cotizacionCuponAplicado.codigo : null,
+    descuento,
     total,
+    estado: 'Pendiente',
     fecha: new Date().toISOString().slice(0,10)
   };
   state.cotizaciones.push(cotizacion);
@@ -1676,16 +1722,42 @@ function verCotizacion(id){
           ${c.items.map(i=>`<tr><td>${i.nombre}</td><td class="mono">${i.cantidad}</td><td class="mono">${fmt(i.precio)}</td><td class="mono">${fmt(i.cantidad*i.precio)}</td></tr>`).join('')}
           </tbody>
         </table>
-        <div style="text-align:right; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px; margin-top:8px">Total: ${fmt(c.total)}</div>
+        <div style="text-align:right; margin-top:8px">
+          ${c.descuento>0 ? `<div style="font-size:13px; color:var(--ink-soft)">Subtotal: ${fmt(c.subtotal)}</div>
+          <div style="font-size:13px; color:var(--forest)">Cupón ${c.cupon} (-${Math.round(c.descuento/c.subtotal*100)}%): -${fmt(c.descuento)}</div>` : ''}
+          <div style="font-family:'IBM Plex Mono'; font-weight:600; font-size:16px">Total: ${fmt(c.total)}</div>
+        </div>
+        ${c.estado==='Aceptada'
+          ? `<div class="stamp-badge st-entregado" style="margin-top:12px">✓ Aceptada — Pedido ${c.pedidoId}</div>`
+          : `<div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--paper-line)">
+              <label>¿El cliente aceptó esta cotización?</label>
+              <p style="font-size:12px; color:var(--ink-soft); margin:2px 0 10px">Al aceptar, se genera un pedido real que pasa a Administración → Pedidos y al flujo de reparto.</p>
+              <div class="field">
+                <label>Tipo de entrega</label>
+                <select id="f-cot-tipoentrega" onchange="toggleDireccionCotizacion()">
+                  <option value="delivery">Delivery</option>
+                  <option value="recojo">Recojo en tienda</option>
+                </select>
+              </div>
+              <div class="field" id="cot-direccion-field">
+                <label>Dirección de entrega</label>
+                <input id="f-cot-direccion" placeholder="Ej. Av. Ejemplo 123, distrito">
+              </div>
+              <button class="btn btn-primary" style="width:100%" onclick="aceptarCotizacion('${c.id}')">✅ Aceptar cotización y generar pedido</button>
+            </div>`}
         <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end; flex-wrap:wrap">
           <button class="btn btn-outline" onclick="cerrarVerCotizacion()">Cerrar</button>
           <button class="btn btn-outline" onclick="generarPDFCotizacion('${c.id}')">🖨️ Descargar PDF</button>
           <button class="btn btn-outline" onclick="enviarCotizacionWhatsApp('${c.id}')">📱 Enviar por WhatsApp</button>
-          ${c.correo ? `<button class="btn btn-primary" onclick="enviarCotizacionCorreo('${c.id}')">📧 Enviar por correo</button>` : ''}
+          ${c.correo ? `<button class="btn btn-outline" onclick="enviarCotizacionCorreo('${c.id}')">📧 Enviar por correo</button>` : ''}
         </div>
       </div>
     </div>`;
   document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function toggleDireccionCotizacion(){
+  const tipo = document.getElementById('f-cot-tipoentrega').value;
+  document.getElementById('cot-direccion-field').style.display = tipo==='delivery' ? 'block' : 'none';
 }
 function cerrarVerCotizacion(){ const m=document.getElementById('verCotizacionModal'); if(m) m.remove(); }
 
@@ -1777,6 +1849,50 @@ function eliminarCotizacion(id){
   state.cotizaciones = state.cotizaciones.filter(c=>c.id!==id);
   toast('Cotización eliminada'); render();
   eliminarCotizacionDB(id);
+}
+
+function aceptarCotizacion(id){
+  const c = state.cotizaciones.find(x=>x.id===id);
+  if(!c) return;
+  const tipo = document.getElementById('f-cot-tipoentrega').value;
+  const direccion = tipo==='delivery' ? document.getElementById('f-cot-direccion').value.trim() : '';
+  if(tipo==='delivery' && !direccion){ toast('Ingresa una dirección de entrega'); return; }
+  for(const i of c.items){
+    const p = productById(i.productId);
+    if(p && i.cantidad > p.stock){ toast(`Sin stock suficiente de ${p.nombre}`); return; }
+  }
+  const pedido = {
+    id: nextId('o', state.orders),
+    cliente: c.cliente,
+    telefono: c.telefono,
+    correo: c.correo || '',
+    tipoEntrega: tipo,
+    direccion,
+    ubicacion: null,
+    items: c.items.map(i=>({productId:i.productId, cantidad:i.cantidad, precio:i.precio})),
+    subtotal: c.subtotal || c.total,
+    cupon: c.cupon || null,
+    descuento: c.descuento || 0,
+    total: c.total,
+    estado: 'Pendiente',
+    fecha: new Date().toISOString().slice(0,10),
+    origenCotizacion: c.id
+  };
+  state.orders.push(pedido);
+  state.misPedidosIds.push(pedido.id);
+  const productosActualizados = c.items.map(i=>{ const p = productById(i.productId); if(p) p.stock -= i.cantidad; return p; }).filter(Boolean);
+
+  c.estado = 'Aceptada';
+  c.pedidoId = pedido.id;
+
+  cerrarVerCotizacion();
+  toast(`Cotización aceptada — pedido ${pedido.id} generado`);
+  state.adminTab = 'pedidos';
+  render();
+
+  guardarPedido(pedido);
+  productosActualizados.forEach(p=>guardarProducto(p));
+  guardarCotizacionDB(c);
 }
 
 /* ================= CLIENTE ================= */
