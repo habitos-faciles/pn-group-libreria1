@@ -370,6 +370,9 @@ let state = {
   searchQuery: '',
   searchQueryClientes: '',
   enviosNovedades: {},
+  cotizaciones: [],
+  cotizacionItems: [],
+  cotizacionClienteNuevo: false,
   cupones: [],
   cuponAplicado: null,
   clientesImportados: [],
@@ -398,6 +401,7 @@ const COL_CLIENTES = 'clientes';
 const COL_EXCLUIDOS = 'clientes_excluidos';
 const COL_CONFIG = 'configuracion';
 const COL_ENVIOS = 'envios_novedades';
+const COL_COTIZACIONES = 'cotizaciones';
 
 function guardarProducto(p){
   if(!db) return;
@@ -477,6 +481,16 @@ function reiniciarMarcasEnvio(){
   if(!db) return;
   telefonos.forEach(t=> db.collection(COL_ENVIOS).doc(t).delete().catch(()=>{}));
   toast('Marcas de envío reiniciadas');
+}
+function guardarCotizacionDB(c){
+  if(!db) return;
+  db.collection(COL_COTIZACIONES).doc(c.id).set(c)
+    .catch(e=>{ console.error(e); toast('No se pudo guardar la cotización en la base de datos'); });
+}
+function eliminarCotizacionDB(id){
+  if(!db) return;
+  db.collection(COL_COTIZACIONES).doc(id).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar la cotización de la base de datos'); });
 }
 
 function seedData(){
@@ -586,6 +600,11 @@ function activarSincronizacionEnVivo(seed){
     state.enviosNovedades = mapa;
     render();
   }, err=>console.error('Sincronización envíos', err));
+
+  db.collection(COL_COTIZACIONES).onSnapshot(snap=>{
+    state.cotizaciones = snap.docs.map(d=>d.data());
+    render();
+  }, err=>console.error('Sincronización cotizaciones', err));
 }
 
 function showWelcome(){
@@ -712,7 +731,8 @@ function renderAdmin(){
     {k:'inventario', label:'Inventario'},
     {k:'categorias', label:'Categorías'},
     {k:'pedidos', label:'Pedidos'},
-    {k:'clientes', label:'Clientes'}
+    {k:'clientes', label:'Clientes'},
+    {k:'cotizaciones', label:'Cotizaciones'}
   ];
   const nav = `<div class="subnav">${tabs.map(t=>`<button class="${state.adminTab===t.k?'active':''}" onclick="setAdminTab('${t.k}')">${t.label}</button>`).join('')}<button style="margin-left:auto" onclick="logout('admin')">Cerrar sesión</button></div>`;
   let body='';
@@ -720,7 +740,8 @@ function renderAdmin(){
   else if(state.adminTab==='inventario') body = renderAdminInventario();
   else if(state.adminTab==='categorias') body = renderAdminCategorias();
   else if(state.adminTab==='pedidos') body = renderAdminPedidos();
-  else body = renderAdminClientes();
+  else if(state.adminTab==='clientes') body = renderAdminClientes();
+  else body = renderAdminCotizaciones();
   return nav + body;
 }
 function setAdminTab(t){ state.adminTab=t; render(); }
@@ -1478,6 +1499,214 @@ function copiarCorreosClientes(){
   navigator.clipboard.writeText(correos)
     .then(()=> toast('Correos copiados — pégalos en CCO desde tu Gmail'))
     .catch(()=> toast('No se pudo copiar automáticamente, selecciona el texto manualmente'));
+}
+
+/* ================= COTIZACIONES ================= */
+function renderAdminCotizaciones(){
+  const lista = [...state.cotizaciones].sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  return `
+    <div class="panel">
+      <div class="panel-head"><h3>Cotizaciones</h3><button class="btn btn-primary btn-sm" onclick="abrirCotizacionForm()">+ Nueva cotización</button></div>
+      <table>
+        <thead><tr><th>N°</th><th>Cliente</th><th>Fecha</th><th>Total</th><th></th></tr></thead>
+        <tbody>
+        ${lista.map(c=>`
+          <tr>
+            <td class="mono">${c.id}</td>
+            <td>${c.cliente}</td>
+            <td>${c.fecha}</td>
+            <td class="price">${fmt(c.total)}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-sm" onclick="verCotizacion('${c.id}')">Ver</button>
+              <button class="btn btn-danger btn-sm" onclick="eliminarCotizacion('${c.id}')">Eliminar</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${lista.length===0 ? '<div class="empty">Todavía no has generado ninguna cotización.</div>' : ''}
+    </div>
+  `;
+}
+
+function abrirCotizacionForm(){
+  state.cotizacionItems = [];
+  state.cotizacionClienteNuevo = false;
+  const clientes = baseDeClientes();
+  const html = `
+    <div class="modal-backdrop" id="cotizacionModal" onclick="if(event.target===this) cerrarCotizacionForm()">
+      <div class="modal" style="max-width:560px">
+        <h3>Nueva cotización</h3>
+
+        <div class="field">
+          <label>Cliente</label>
+          <select id="f-cot-cliente-select" onchange="onCambioClienteCotizacion(this.value)" ${state.cotizacionClienteNuevo?'style="display:none"':''}>
+            <option value="">— Selecciona un cliente —</option>
+            ${clientes.map(c=>`<option value="${c.telefono}">${c.cliente} (${c.telefono})</option>`).join('')}
+            <option value="__nuevo__">+ Registrar cliente nuevo</option>
+          </select>
+        </div>
+        <div id="cot-cliente-nuevo-campos" style="display:none">
+          <div class="form-row">
+            <div class="field"><label>Nombre completo</label><input id="f-cot-nombre" placeholder="Nombres y apellidos"></div>
+            <div class="field"><label>Celular</label><input id="f-cot-celular" placeholder="9xxxxxxxx"></div>
+          </div>
+          <div class="field"><label>Correo (opcional)</label><input id="f-cot-correo" type="email" placeholder="correo@ejemplo.com"></div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="cancelarClienteNuevoCotizacion()">← Elegir cliente existente</button>
+        </div>
+
+        <div style="border-top:1px solid var(--paper-line); margin:16px 0 12px; padding-top:12px">
+          <label style="display:block; margin-bottom:8px; font-weight:700">Productos</label>
+          <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap">
+            <div class="field" style="flex:1; min-width:180px; margin-bottom:0">
+              <select id="f-cot-producto">
+                ${state.products.map(p=>`<option value="${p.id}">${p.nombre} (${fmt(p.precio)})</option>`).join('')}
+              </select>
+            </div>
+            <div class="field" style="width:80px; margin-bottom:0">
+              <input id="f-cot-cantidad" type="number" min="1" value="1">
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="agregarItemCotizacion()">+ Agregar</button>
+          </div>
+        </div>
+        <div id="cot-items-lista">${renderCotizacionItemsHtml()}</div>
+
+        <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="cerrarCotizacionForm()">Cancelar</button>
+          <button class="btn btn-primary" onclick="guardarCotizacion()">Generar cotización</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function cerrarCotizacionForm(){ const m=document.getElementById('cotizacionModal'); if(m) m.remove(); state.cotizacionItems=[]; }
+
+function onCambioClienteCotizacion(val){
+  if(val==='__nuevo__'){
+    state.cotizacionClienteNuevo = true;
+    document.getElementById('f-cot-cliente-select').style.display='none';
+    document.getElementById('cot-cliente-nuevo-campos').style.display='block';
+  }
+}
+function cancelarClienteNuevoCotizacion(){
+  state.cotizacionClienteNuevo = false;
+  document.getElementById('f-cot-cliente-select').style.display='block';
+  document.getElementById('f-cot-cliente-select').value='';
+  document.getElementById('cot-cliente-nuevo-campos').style.display='none';
+}
+
+function renderCotizacionItemsHtml(){
+  if(state.cotizacionItems.length===0) return '<div class="empty" style="padding:16px">Todavía no agregaste productos.</div>';
+  const total = state.cotizacionItems.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  return `
+    <table>
+      <thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
+      <tbody>
+      ${state.cotizacionItems.map((i,idx)=>`
+        <tr>
+          <td>${i.nombre}</td>
+          <td class="mono">${i.cantidad}</td>
+          <td class="mono">${fmt(i.precio)}</td>
+          <td class="mono">${fmt(i.cantidad*i.precio)}</td>
+          <td><button type="button" class="btn btn-danger btn-sm" onclick="quitarItemCotizacion(${idx})">✕</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="text-align:right; font-family:'IBM Plex Mono'; font-weight:600; font-size:15px; margin-top:8px">Total: ${fmt(total)}</div>
+  `;
+}
+function agregarItemCotizacion(){
+  const productId = document.getElementById('f-cot-producto').value;
+  const cantidad = parseInt(document.getElementById('f-cot-cantidad').value);
+  const p = productById(productId);
+  if(!p || !cantidad || cantidad<1){ toast('Elige un producto y una cantidad válida'); return; }
+  const existente = state.cotizacionItems.find(i=>i.productId===productId);
+  if(existente) existente.cantidad += cantidad;
+  else state.cotizacionItems.push({ productId, nombre:p.nombre, cantidad, precio:p.precio });
+  document.getElementById('cot-items-lista').innerHTML = renderCotizacionItemsHtml();
+}
+function quitarItemCotizacion(idx){
+  state.cotizacionItems.splice(idx,1);
+  document.getElementById('cot-items-lista').innerHTML = renderCotizacionItemsHtml();
+}
+
+function guardarCotizacion(){
+  let nombre, telefono, correo;
+  if(state.cotizacionClienteNuevo){
+    nombre = document.getElementById('f-cot-nombre').value.trim();
+    telefono = document.getElementById('f-cot-celular').value.trim().replace(/\D/g,'');
+    correo = document.getElementById('f-cot-correo').value.trim();
+    if(!nombre || telefono.length<6){ toast('Completa nombre y celular del cliente nuevo'); return; }
+    guardarClienteDB({ telefono, nombre, correo, fecha:new Date().toISOString().slice(0,10) });
+    state.clientesImportados.push({ telefono, nombre, correo, fecha:new Date().toISOString().slice(0,10) });
+  } else {
+    const telefonoSel = document.getElementById('f-cot-cliente-select').value;
+    if(!telefonoSel){ toast('Selecciona un cliente o registra uno nuevo'); return; }
+    const c = baseDeClientes().find(x=>x.telefono===telefonoSel);
+    nombre = c.cliente; telefono = c.telefono; correo = c.correo;
+  }
+  if(state.cotizacionItems.length===0){ toast('Agrega al menos un producto'); return; }
+  const total = state.cotizacionItems.reduce((s,i)=>s+i.cantidad*i.precio,0);
+  const cotizacion = {
+    id: nextId('COT-', state.cotizaciones),
+    cliente: nombre,
+    telefono,
+    correo: correo||'',
+    items: state.cotizacionItems,
+    total,
+    fecha: new Date().toISOString().slice(0,10)
+  };
+  state.cotizaciones.push(cotizacion);
+  cerrarCotizacionForm();
+  toast('Cotización generada'); render();
+  guardarCotizacionDB(cotizacion);
+}
+
+function verCotizacion(id){
+  const c = state.cotizaciones.find(x=>x.id===id);
+  if(!c) return;
+  const html = `
+    <div class="modal-backdrop" id="verCotizacionModal" onclick="if(event.target===this) cerrarVerCotizacion()">
+      <div class="modal" style="max-width:480px">
+        <h3>Cotización ${c.id}</h3>
+        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:12px">${c.fecha} · Cliente: <strong>${c.cliente}</strong> (${c.telefono})</p>
+        <table>
+          <thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead>
+          <tbody>
+          ${c.items.map(i=>`<tr><td>${i.nombre}</td><td class="mono">${i.cantidad}</td><td class="mono">${fmt(i.precio)}</td><td class="mono">${fmt(i.cantidad*i.precio)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+        <div style="text-align:right; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px; margin-top:8px">Total: ${fmt(c.total)}</div>
+        <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end; flex-wrap:wrap">
+          <button class="btn btn-outline" onclick="cerrarVerCotizacion()">Cerrar</button>
+          <button class="btn btn-outline" onclick="enviarCotizacionWhatsApp('${c.id}')">📱 Enviar por WhatsApp</button>
+          ${c.correo ? `<button class="btn btn-primary" onclick="enviarCotizacionCorreo('${c.id}')">📧 Enviar por correo</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function cerrarVerCotizacion(){ const m=document.getElementById('verCotizacionModal'); if(m) m.remove(); }
+
+function textoCotizacion(c){
+  const lineas = c.items.map(i=>`${i.cantidad}x ${i.nombre} — ${fmt(i.precio)} c/u = ${fmt(i.cantidad*i.precio)}`).join('\n');
+  return `Hola ${c.cliente.split(' ')[0]}, aquí tienes tu cotización ${c.id} de Catálogo Virtual y Librería:\n\n${lineas}\n\nTotal: ${fmt(c.total)}\n\nSi deseas confirmar el pedido, entra a nuestra tienda: https://habitos-faciles.github.io/pn-group-libreria1/\n¡Saludos!`;
+}
+function enviarCotizacionWhatsApp(id){
+  const c = state.cotizaciones.find(x=>x.id===id);
+  const numero = c.telefono.replace(/\D/g,'');
+  const conPrefijo = numero.startsWith('51') ? numero : '51'+numero;
+  window.open(`https://wa.me/${conPrefijo}?text=${encodeURIComponent(textoCotizacion(c))}`, '_blank');
+}
+function enviarCotizacionCorreo(id){
+  const c = state.cotizaciones.find(x=>x.id===id);
+  const asunto = encodeURIComponent(`Cotización ${c.id} — Catálogo Virtual y Librería`);
+  window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(c.correo)}&su=${asunto}&body=${encodeURIComponent(textoCotizacion(c))}`, '_blank');
+}
+function eliminarCotizacion(id){
+  if(!confirm(`¿Eliminar la cotización ${id}?`)) return;
+  state.cotizaciones = state.cotizaciones.filter(c=>c.id!==id);
+  toast('Cotización eliminada'); render();
+  eliminarCotizacionDB(id);
 }
 
 /* ================= CLIENTE ================= */
