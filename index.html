@@ -625,6 +625,34 @@ function showWelcome(){
 }
 function closeWelcome(){ const m=document.getElementById('welcomeModal'); if(m) m.remove(); }
 
+function reiniciarActividadNegocio(){
+  if(!confirm('Esto borrará TODOS los pedidos, clientes y cotizaciones registrados hasta ahora, de forma permanente. Tu inventario, categorías y cupones NO se tocan.\n\n¿Continuar?')) return;
+  const confirmacion = prompt('Para confirmar, escribe la palabra BORRAR (en mayúsculas):');
+  if(confirmacion !== 'BORRAR'){ toast('Cancelado — no se borró nada'); return; }
+
+  state.orders = [];
+  state.clientesImportados = [];
+  state.clientesExcluidos = [];
+  state.cotizaciones = [];
+  state.enviosNovedades = {};
+  state.misPedidosIds = [];
+  render();
+  toast('Datos de clientes, pedidos y cotizaciones borrados');
+
+  if(!db) return;
+  const borrarColeccion = (col)=> db.collection(col).get().then(snap=>{
+    const batch = db.batch();
+    snap.docs.forEach(d=>batch.delete(d.ref));
+    return batch.commit();
+  }).catch(e=>console.error('Error borrando '+col, e));
+  Promise.all([
+    borrarColeccion(COL_PEDIDOS),
+    borrarColeccion(COL_CLIENTES),
+    borrarColeccion(COL_EXCLUIDOS),
+    borrarColeccion(COL_COTIZACIONES),
+    borrarColeccion(COL_ENVIOS)
+  ]);
+}
 function resetAll(){
   const seed = seedData();
   state.categories = seed.categories; state.products = seed.products; state.orders = seed.orders; state.cart = [];
@@ -776,6 +804,14 @@ function renderAdminResumen(){
       <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px">Prueba si el envío de correo está funcionando, sin necesidad de hacer un pedido real.</p>
       <button class="btn btn-outline btn-sm" onclick="enviarCorreoPrueba()">📧 Enviar correo de prueba</button>
       <p id="resultadoCorreoPrueba" style="font-size:13px; margin-top:10px"></p>
+    </div>
+    <div class="panel" style="border:1.5px solid var(--stamp)">
+      <div class="panel-head"><h3>⚠️ Zona de reinicio</h3></div>
+      <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px; line-height:1.5">
+        Borra permanentemente <strong>pedidos, clientes y cotizaciones</strong> (y sus marcas de envío) para empezar de cero con la actividad del negocio.
+        <strong>Tu inventario, categorías y cupones NO se tocan.</strong> Esta acción no se puede deshacer.
+      </p>
+      <button class="btn btn-danger btn-sm" onclick="reiniciarActividadNegocio()">🗑️ Borrar pedidos, clientes y cotizaciones</button>
     </div>
   `;
 }
