@@ -375,6 +375,10 @@ let state = {
   cotizacionItems: [],
   cotizacionClienteNuevo: false,
   cotizacionCuponAplicado: null,
+  kits: [],
+  kitItemsForm: [],
+  kitViendo: null,
+  kitSeleccionados: {},
   cupones: [],
   cuponAplicado: null,
   clientesImportados: [],
@@ -404,6 +408,7 @@ const COL_EXCLUIDOS = 'clientes_excluidos';
 const COL_CONFIG = 'configuracion';
 const COL_ENVIOS = 'envios_novedades';
 const COL_COTIZACIONES = 'cotizaciones';
+const COL_KITS = 'kits';
 
 function guardarProducto(p){
   if(!db) return;
@@ -493,6 +498,16 @@ function eliminarCotizacionDB(id){
   if(!db) return;
   db.collection(COL_COTIZACIONES).doc(id).delete()
     .catch(e=>{ console.error(e); toast('No se pudo eliminar la cotización de la base de datos'); });
+}
+function guardarKitDB(k){
+  if(!db) return;
+  db.collection(COL_KITS).doc(k.id).set(k)
+    .catch(e=>{ console.error(e); toast('No se pudo guardar el kit en la base de datos'); });
+}
+function eliminarKitDB(id){
+  if(!db) return;
+  db.collection(COL_KITS).doc(id).delete()
+    .catch(e=>{ console.error(e); toast('No se pudo eliminar el kit de la base de datos'); });
 }
 
 function seedData(){
@@ -607,6 +622,11 @@ function activarSincronizacionEnVivo(seed){
     state.cotizaciones = snap.docs.map(d=>d.data());
     render();
   }, err=>console.error('Sincronización cotizaciones', err));
+
+  db.collection(COL_KITS).onSnapshot(snap=>{
+    state.kits = snap.docs.map(d=>d.data());
+    render();
+  }, err=>console.error('Sincronización kits', err));
 }
 
 function showWelcome(){
@@ -762,7 +782,8 @@ function renderAdmin(){
     {k:'categorias', label:'Categorías'},
     {k:'pedidos', label:'Pedidos'},
     {k:'clientes', label:'Clientes'},
-    {k:'cotizaciones', label:'Cotizaciones'}
+    {k:'cotizaciones', label:'Cotizaciones'},
+    {k:'kits', label:'Kits'}
   ];
   const nav = `<div class="subnav">${tabs.map(t=>`<button class="${state.adminTab===t.k?'active':''}" onclick="setAdminTab('${t.k}')">${t.label}</button>`).join('')}<button style="margin-left:auto" onclick="logout('admin')">Cerrar sesión</button></div>`;
   let body='';
@@ -771,7 +792,8 @@ function renderAdmin(){
   else if(state.adminTab==='categorias') body = renderAdminCategorias();
   else if(state.adminTab==='pedidos') body = renderAdminPedidos();
   else if(state.adminTab==='clientes') body = renderAdminClientes();
-  else body = renderAdminCotizaciones();
+  else if(state.adminTab==='cotizaciones') body = renderAdminCotizaciones();
+  else body = renderAdminKits();
   return nav + body;
 }
 function setAdminTab(t){ state.adminTab=t; render(); }
@@ -1931,21 +1953,144 @@ function aceptarCotizacion(id){
   guardarCotizacionDB(c);
 }
 
+/* ================= KITS (ADMIN) ================= */
+function renderAdminKits(){
+  const lista = [...state.kits].sort((a,b)=> a.nombre.localeCompare(b.nombre));
+  return `
+    <div class="panel">
+      <div class="panel-head"><h3>Kits de productos</h3><button class="btn btn-primary btn-sm" onclick="abrirKitForm()">+ Nuevo kit</button></div>
+      <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 14px">Arma listas predefinidas (ej. "Lista de útiles 1er Grado") para que tus clientes elijan qué necesitan y agreguen todo al carrito de una vez.</p>
+      <table>
+        <thead><tr><th>Nombre</th><th>Descripción</th><th>Productos</th><th></th></tr></thead>
+        <tbody>
+        ${lista.map(k=>`
+          <tr>
+            <td style="font-weight:600">${k.nombre}</td>
+            <td style="font-size:13px; color:var(--ink-soft)">${k.descripcion||''}</td>
+            <td class="mono">${k.productos.length}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-sm" onclick="abrirKitForm('${k.id}')">Editar</button>
+              <button class="btn btn-danger btn-sm" onclick="eliminarKit('${k.id}')">Eliminar</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${lista.length===0 ? '<div class="empty">Todavía no has creado ningún kit.</div>' : ''}
+    </div>
+  `;
+}
+
+function abrirKitForm(id){
+  const kit = id ? state.kits.find(k=>k.id===id) : null;
+  state.kitItemsForm = kit ? JSON.parse(JSON.stringify(kit.productos)) : [];
+  const html = `
+    <div class="modal-backdrop" id="kitModal" onclick="if(event.target===this) cerrarKitForm()">
+      <div class="modal" style="max-width:560px">
+        <h3>${kit ? 'Editar kit' : 'Nuevo kit'}</h3>
+        <div class="field"><label>Nombre del kit</label><input id="f-kit-nombre" value="${kit?kit.nombre.replace(/"/g,'&quot;'):''}" placeholder="Ej. Lista de útiles 1er Grado"></div>
+        <div class="field"><label>Descripción (opcional, la ve el cliente)</label><input id="f-kit-desc" value="${kit&&kit.descripcion?kit.descripcion.replace(/"/g,'&quot;'):''}" placeholder="Ej. Todo lo que pide el colegio para 1er grado de primaria"></div>
+
+        <div style="border-top:1px solid var(--paper-line); margin:14px 0 10px; padding-top:12px">
+          <label style="display:block; margin-bottom:8px; font-weight:700">Productos del kit</label>
+          <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap">
+            <div class="field" style="flex:1; min-width:180px; margin-bottom:0">
+              <select id="f-kit-producto">
+                ${state.products.map(p=>`<option value="${p.id}">${p.nombre} (${fmt(p.precio)})</option>`).join('')}
+              </select>
+            </div>
+            <div class="field" style="width:80px; margin-bottom:0">
+              <input id="f-kit-cantidad" type="number" min="1" value="1">
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="agregarItemKit()">+ Agregar</button>
+          </div>
+        </div>
+        <div id="kit-items-lista">${renderKitItemsFormHtml()}</div>
+
+        <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end">
+          <button class="btn btn-outline" onclick="cerrarKitForm()">Cancelar</button>
+          <button class="btn btn-primary" onclick="guardarKit('${id||''}')">${kit?'Guardar cambios':'Crear kit'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('content').insertAdjacentHTML('beforeend', html);
+}
+function cerrarKitForm(){ const m=document.getElementById('kitModal'); if(m) m.remove(); state.kitItemsForm=[]; }
+
+function renderKitItemsFormHtml(){
+  if(state.kitItemsForm.length===0) return '<div class="empty" style="padding:16px">Todavía no agregaste productos.</div>';
+  return `
+    <table>
+      <thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th></th></tr></thead>
+      <tbody>
+      ${state.kitItemsForm.map((i,idx)=>{
+        const p = productById(i.productId);
+        return `<tr>
+          <td>${p?p.nombre:'(producto eliminado)'}</td>
+          <td class="mono">${i.cantidad}</td>
+          <td class="mono">${p?fmt(p.precio):'—'}</td>
+          <td><button type="button" class="btn btn-danger btn-sm" onclick="quitarItemKit(${idx})">✕</button></td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+function agregarItemKit(){
+  const productId = document.getElementById('f-kit-producto').value;
+  const cantidad = parseInt(document.getElementById('f-kit-cantidad').value);
+  const p = productById(productId);
+  if(!p || !cantidad || cantidad<1){ toast('Elige un producto y una cantidad válida'); return; }
+  const existente = state.kitItemsForm.find(i=>i.productId===productId);
+  if(existente) existente.cantidad += cantidad;
+  else state.kitItemsForm.push({ productId, cantidad });
+  document.getElementById('kit-items-lista').innerHTML = renderKitItemsFormHtml();
+}
+function quitarItemKit(idx){
+  state.kitItemsForm.splice(idx,1);
+  document.getElementById('kit-items-lista').innerHTML = renderKitItemsFormHtml();
+}
+function guardarKit(id){
+  const nombre = document.getElementById('f-kit-nombre').value.trim();
+  const descripcion = document.getElementById('f-kit-desc').value.trim();
+  if(!nombre){ toast('Escribe un nombre para el kit'); return; }
+  if(state.kitItemsForm.length===0){ toast('Agrega al menos un producto al kit'); return; }
+  const kit = {
+    id: id || nextId('kit-', state.kits),
+    nombre,
+    descripcion,
+    productos: state.kitItemsForm
+  };
+  const existente = state.kits.findIndex(k=>k.id===kit.id);
+  if(existente>=0) state.kits[existente] = kit;
+  else state.kits.push(kit);
+  cerrarKitForm();
+  toast(id ? 'Kit actualizado' : 'Kit creado'); render();
+  guardarKitDB(kit);
+}
+function eliminarKit(id){
+  if(!confirm('¿Eliminar este kit? Esto no afecta pedidos ya hechos.')) return;
+  state.kits = state.kits.filter(k=>k.id!==id);
+  toast('Kit eliminado'); render();
+  eliminarKitDB(id);
+}
+
 /* ================= CLIENTE ================= */
 function renderCliente(){
   const tabs = [
     {k:'catalogo', label:'Catálogo'},
+    {k:'kits', label:'Kits y listas'},
     {k:'carrito', label:`Carrito (${state.cart.reduce((s,c)=>s+c.cantidad,0)})`},
     {k:'pedidos', label:'Mis pedidos'}
   ];
   const nav = `<div class="subnav">${tabs.map(t=>`<button class="${state.clienteTab===t.k?'active':''}" onclick="setClienteTab('${t.k}')">${t.label}</button>`).join('')}</div>`;
   let body='';
   if(state.clienteTab==='catalogo') body = renderCatalogo();
+  else if(state.clienteTab==='kits') body = renderKitsCliente();
   else if(state.clienteTab==='carrito') body = renderCarrito();
   else body = renderMisPedidos();
   return nav + body;
 }
-function setClienteTab(t){ state.clienteTab=t; render(); }
+function setClienteTab(t){ state.clienteTab=t; state.kitViendo=null; render(); }
 
 function renderCatalogo(){
   const cats = ['Todas', ...state.categories];
@@ -2098,6 +2243,105 @@ function quitarCupon(){
   state.cuponAplicado = null;
   render();
 }
+function renderKitsCliente(){
+  if(state.kitViendo){
+    return renderKitDetalleCliente(state.kitViendo);
+  }
+  return `
+    <div class="panel">
+      <h3>Kits y listas de útiles</h3>
+      <p style="font-size:13px; color:var(--ink-soft); margin-top:-4px">Listas ya armadas (como la de tu grado escolar) — elige cuáles productos necesitas y agrégalos todos juntos al carrito.</p>
+    </div>
+    <div class="grid cards-4">
+      ${state.kits.map(k=>`
+        <div class="product-card">
+          <div class="cat-tag">KIT</div>
+          <h4>${k.nombre}</h4>
+          <div style="font-size:12px; color:var(--ink-soft)">${k.descripcion||''}</div>
+          <div style="font-size:12px; color:var(--ink-soft); margin-top:4px">${k.productos.length} producto${k.productos.length===1?'':'s'}</div>
+          <div class="row-bottom">
+            <button class="btn btn-primary btn-sm" onclick="verKitCliente('${k.id}')">Ver y elegir</button>
+          </div>
+        </div>`).join('')}
+    </div>
+    ${state.kits.length===0 ? '<div class="empty">Todavía no hay kits o listas disponibles.</div>' : ''}
+  `;
+}
+function verKitCliente(id){
+  const kit = state.kits.find(k=>k.id===id);
+  if(!kit) return;
+  const seleccion = {};
+  kit.productos.forEach(i=>{ seleccion[i.productId] = true; });
+  state.kitSeleccionados = seleccion;
+  state.kitViendo = id;
+  render();
+}
+function volverAKits(){
+  state.kitViendo = null;
+  render();
+}
+function toggleKitItem(productId){
+  state.kitSeleccionados[productId] = !state.kitSeleccionados[productId];
+  render();
+}
+function renderKitDetalleCliente(id){
+  const kit = state.kits.find(k=>k.id===id);
+  if(!kit){ state.kitViendo=null; return renderKitsCliente(); }
+  let total = 0;
+  const filas = kit.productos.map(i=>{
+    const p = productById(i.productId);
+    if(!p) return '';
+    const marcado = !!state.kitSeleccionados[i.productId];
+    const sinStock = p.stock < i.cantidad;
+    if(marcado && !sinStock) total += p.precio * i.cantidad;
+    return `
+      <div class="cart-line" style="align-items:flex-start">
+        <label style="display:flex; gap:10px; align-items:flex-start; cursor:${sinStock?'not-allowed':'pointer'}; ${sinStock?'opacity:.5':''}">
+          <input type="checkbox" ${marcado?'checked':''} ${sinStock?'disabled':''} onchange="toggleKitItem('${i.productId}')" style="margin-top:3px">
+          <div>
+            <div style="font-weight:600">${p.nombre}</div>
+            <div style="font-size:12px; color:var(--ink-soft)">Cantidad: ${i.cantidad} · ${fmt(p.precio)} c/u ${sinStock?'· Sin stock suficiente':''}</div>
+          </div>
+        </label>
+        <div class="price">${fmt(p.precio*i.cantidad)}</div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="panel">
+      <button class="btn btn-outline btn-sm" onclick="volverAKits()">← Volver a Kits</button>
+      <h3 style="margin-top:12px">${kit.nombre}</h3>
+      <p style="font-size:13px; color:var(--ink-soft)">${kit.descripcion||''}</p>
+      <p style="font-size:12px; color:var(--ink-soft)">Desmarca lo que ya tienes o no necesitas — solo se agregará al carrito lo que dejes marcado.</p>
+    </div>
+    <div class="panel">
+      ${filas}
+      <div style="display:flex; justify-content:flex-end; padding-top:14px; font-family:'IBM Plex Mono'; font-weight:600; font-size:16px">Total seleccionado: ${fmt(total)}</div>
+      <div style="display:flex; justify-content:flex-end; margin-top:10px">
+        <button class="btn btn-primary" onclick="agregarKitAlCarrito('${kit.id}')">Agregar seleccionados al carrito</button>
+      </div>
+    </div>
+  `;
+}
+function agregarKitAlCarrito(id){
+  const kit = state.kits.find(k=>k.id===id);
+  if(!kit) return;
+  let agregados = 0;
+  kit.productos.forEach(i=>{
+    if(!state.kitSeleccionados[i.productId]) return;
+    const p = productById(i.productId);
+    if(!p || p.stock < i.cantidad) return;
+    const existente = state.cart.find(c=>c.productId===i.productId);
+    if(existente) existente.cantidad += i.cantidad;
+    else state.cart.push({ productId:i.productId, cantidad:i.cantidad });
+    agregados++;
+  });
+  if(agregados===0){ toast('No seleccionaste ningún producto disponible'); return; }
+  toast(`${agregados} producto(s) del kit agregados al carrito`);
+  state.kitViendo = null;
+  state.clienteTab = 'carrito';
+  render();
+}
+
 function renderCarrito(){
   if(state.cart.length===0){
     return `<div class="panel"><div class="empty">Tu carrito está vacío. Ve al catálogo para agregar productos.</div></div>`;
